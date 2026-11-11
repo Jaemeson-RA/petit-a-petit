@@ -646,6 +646,31 @@ html[data-theme=dark] .hero .q-bar span,html[data-theme=dark] .q-bar span{color:
 html[data-theme=dark] .answer{background:repeating-linear-gradient(180deg,transparent 0 55px,var(--line) 55px 57px)}
 html[data-theme=dark] .em{filter:none}
 
+/* lot 4 : exercices plus compacts (tout doit tenir à l'écran d'un iPhone, même dans Safari) */
+.qtitle{font-size:22px;margin-bottom:12px}
+.prompt{margin-bottom:12px}
+.prompt .piaf svg{width:56px;height:56px}
+.prompt .bubble{font-size:17px;padding:9px 12px}
+.answer{min-height:59px;gap:11px 8px;padding:6px 0 10px;margin-bottom:14px;background:repeating-linear-gradient(180deg,transparent 0 51px,var(--line) 51px 53px)}
+html[data-theme=dark] .answer{background:repeating-linear-gradient(180deg,transparent 0 51px,var(--line) 51px 53px)}
+.tok{min-height:42px;padding:0 12px;font-size:16.5px}
+.bank{gap:8px 7px}
+.big-say{margin:6px 0 16px}
+.big-say .say{width:84px;height:84px;border-radius:24px}
+.big-say .say .ic{width:40px;height:40px}
+.big-say .say.slow{width:58px;height:58px;border-radius:18px}
+.qbody{padding-bottom:20px}
+.qfoot{position:relative}
+.qbody.more+.qfoot:before{content:"";position:absolute;left:0;right:0;top:-34px;height:32px;background:linear-gradient(180deg,rgba(255,248,238,0),var(--bg));pointer-events:none}
+.qbody.more+.qfoot:after{content:"";position:absolute;left:50%;top:-22px;width:12px;height:12px;margin-left:-6px;border-right:3px solid var(--muted);border-bottom:3px solid var(--muted);transform:rotate(45deg);animation:bob 1.2s ease-in-out infinite;pointer-events:none}
+html[data-theme=dark] .qbody.more+.qfoot:before{background:linear-gradient(180deg,rgba(16,20,28,0),var(--bg))}
+@media (max-height:700px){.qtitle{font-size:20px;margin-bottom:8px}.prompt .piaf svg{width:48px;height:48px}.qbar{padding-top:6px}.qfoot{padding:8px 16px 10px}.btn{min-height:48px}}
+.fill-sent{margin-bottom:6px}
+.fill-es{color:var(--muted);font-size:15.500px;font-weight:700;margin:0 0 18px}
+/* lot 4b */
+.combo-pop{top:19%}
+.answer{border-bottom:0}
+
 </style>
 </head>
 <body>

@@ -405,7 +405,7 @@ function piaf(mood = 'happy', prop = '') {
   const open = r => `<g class="pf-eyes"><circle cx="41" cy="50" r="${r}" fill="#1E2A3A"/><circle cx="59" cy="50" r="${r}" fill="#1E2A3A"/><circle cx="42.6" cy="48.4" r="1.7" fill="#fff"/><circle cx="60.6" cy="48.4" r="1.7" fill="#fff"/></g>`;
   const eyes = mood === 'wow' ? open(5.2)
     : mood === 'sad'
-      ? '<path d="M35 46l9 3M65 46l-9 3" stroke="#1E2A3A" stroke-width="2.4" stroke-linecap="round"/><g class="pf-eyes"><circle cx="41" cy="52" r="3.6" fill="#1E2A3A"/><circle cx="59" cy="52" r="3.6" fill="#1E2A3A"/></g><path d="M66 56q2 5 0 7q-2-2 0-7z" fill="#8FC1FF"/>'
+      ? '<path d="M34 48l10-4M66 48l-10-4" stroke="#1E2A3A" stroke-width="2.4" stroke-linecap="round"/><g class="pf-eyes"><circle cx="41" cy="52" r="3.6" fill="#1E2A3A"/><circle cx="59" cy="52" r="3.6" fill="#1E2A3A"/></g><path d="M66 56q2 5 0 7q-2-2 0-7z" fill="#8FC1FF"/>'
       : mood === 'zzz'
         ? '<path d="M36 52q5 4 10 0M54 52q5 4 10 0" stroke="#1E2A3A" stroke-width="3" fill="none" stroke-linecap="round"/><text x="74" y="30" font-size="15" font-weight="800" fill="#7B5CFF" font-family="Nunito,sans-serif">z</text><text x="84" y="19" font-size="11" font-weight="800" fill="#7B5CFF" font-family="Nunito,sans-serif">z</text>'
       : mood === 'joy'
@@ -612,33 +612,57 @@ $('#v-close').onclick = closeVideo;
 const speakOK = () => S.set.speak && Bridge && safeCanListen() && Date.now() > (S.speakOff || 0);
 function safeCanListen() { try { return Bridge.canListen(); } catch { return false; } }
 
+/* deux traductions « se recouvrent » si elles partagent une des variantes séparées par « / » */
+const esParts = t => String(t).toLowerCase().replace(/\(.*?\)/g, '').split('/').map(norm).filter(Boolean);
+const overlap = (a, b) => { const pa = esParts(a); return esParts(b).some(x => pa.includes(x)); };
+const distinct = (x, v) => !overlap(x.es, v.es) && norm(x.fr) !== norm(v.fr);
 function exPick(v, vs) {
-  const others = sample(vs.filter(x => norm(x.es) !== norm(v.es) && norm(x.fr) !== norm(v.fr)), 3);
+  const others = [];
+  shuffle(vs.filter(x => distinct(x, v))).forEach(x => { if (others.length < 3 && others.every(o => distinct(o, x))) others.push(x); });
   return { t: 'pick', item: v, opts: shuffle([v.es, ...others.map(o => o.es)]), ans: v.es, ref: ['v', v.lesson, v.fr] };
 }
 function exPickFr(v, vs) {
-  const others = sample(vs.filter(x => norm(x.fr) !== norm(v.fr) && norm(x.es) !== norm(v.es)), 2);
+  const others = sample(vs.filter(x => distinct(x, v)), 2);
   return { t: 'pickfr', item: v, opts: shuffle([v, ...others]), ans: v.fr, ref: ['v', v.lesson, v.fr] };
 }
 const ART = ['#2E5BFF', '#12A48B', '#FF8A1C', '#7B5CFF', '#E8508A', '#1BA3E0'];
 function exPickImg(v, vs) {
-  const others = sample(vs.filter(x => x.art && x.art !== v.art && norm(x.es) !== norm(v.es) && norm(x.fr) !== norm(v.fr))
+  const others = sample(vs.filter(x => x.art && x.art !== v.art && distinct(x, v))
     .filter((x, i, a) => a.findIndex(y => y.art === x.art) === i), 3);
   if (others.length < 2) return null;
   const col = shuffle(ART);
   return { t: 'pickimg', item: v, opts: shuffle([v, ...others]).map((o, i) => ({ ...o, col: col[i] })), ans: v.fr, ref: ['v', v.lesson, v.fr] };
 }
 const imgPool = (V, extra) => { const own = V.filter(v => v.art); return own.length >= 4 ? own : own.concat(extra.filter(v => v.art && !own.includes(v))); };
+/* Noms propres : mots écrits avec une majuscule ailleurs qu'en début de phrase. Eux seuls gardent leur majuscule
+   sur les étiquettes ; sinon la majuscule désignerait le premier mot (et un leurre en majuscule serait un piège). */
+const PROPER = new Set(['Alejandra', 'Jaemeson', 'Adrien', 'Thibault', 'Luca', 'Maxime', 'Amandine', 'Margaux', 'Chloé', 'Manon', 'Clémence', 'Juliette', 'Shelby', 'Jacques', 'Paris', 'Lyon', 'France', 'Argentine', 'Argentina', 'Francia']);
+const rawWords = t => String(t).replace(/[’‘]/g, "'").split(/\s+/).filter(Boolean);
+const cleanWord = r => r.replace(/^[¿¡«"“(]+|[.,!?;:»"”)…]+$/g, '');
+UNITS.forEach(u => u.lessons.forEach(l => l.sentences.forEach(st => [st.fr, st.es].forEach(t => {
+  const raw = rawWords(t);
+  raw.forEach((r, i) => { const c = cleanWord(r); if (i > 0 && !/[.!?…]$/.test(raw[i - 1]) && /^[A-ZÀ-ÖØ-Þ]/.test(c)) PROPER.add(c); });
+}))));
+function bankTokens(text) {
+  const raw = rawWords(text), out = [];
+  raw.forEach((r, i) => {
+    const c = cleanWord(r); if (!c) return;
+    const start = i === 0 || /[.!?…]$/.test(raw[i - 1]);
+    out.push(start && !PROPER.has(c) ? c.charAt(0).toLowerCase() + c.slice(1) : c);
+  });
+  return out;
+}
 function distractors(target, from, n) {
-  const have = new Set(tokens(target).map(t => t.toLowerCase()));
-  const cand = [...new Set(from.flatMap(s => tokens(s)).filter(t => !have.has(t.toLowerCase())))];
+  const have = new Set(bankTokens(target).map(t => t.toLowerCase()));
+  const seen = new Set(), cand = [];
+  from.flatMap(x => bankTokens(x)).forEach(t => { const k = t.toLowerCase(); if (!have.has(k) && !seen.has(k)) { seen.add(k); cand.push(t); } });
   return sample(cand, n);
 }
 function exBuild(s, ss, dir) {
   const target = dir === 'es' ? s.es : s.fr;
   const others = ss.filter(x => x !== s).map(x => dir === 'es' ? x.es : x.fr);
-  const tk = tokens(target);
-  const bank = shuffle([...tk, ...distractors(target, others, tk.length > 6 ? 4 : 3)]);
+  const tk = bankTokens(target);
+  const bank = shuffle([...tk, ...distractors(target, others, tk.length > 6 ? 2 : 3)]);
   return { t: dir === 'es' ? 'build-es' : 'build', item: s, bank, ans: target, ref: ['s', s.lesson, s.fr] };
 }
 function exListen(s, ss) { const e = exBuild(s, ss, 'fr'); e.t = 'listen'; return e; }
@@ -646,7 +670,11 @@ function exFill(g) {
   const full = g.q.replace('___', g.opts[g.a]);
   return { t: 'fill', item: g, opts: g.opts.map((o, i) => ({ o, i })).sort(() => Math.random() - .5), ans: g.opts[g.a], full, ref: ['g', g.lesson, g.q] };
 }
-function exMatch(vs) { const p = sample(vs, Math.min(5, vs.length)); return { t: 'match', pairs: p, ref: null }; }
+function exMatch(vs) {
+  const p = [];
+  shuffle(vs).forEach(x => { if (p.length < 5 && p.every(o => distinct(o, x))) p.push(x); });
+  return { t: 'match', pairs: p, ref: null };
+}
 function exSpeak(s) { return { t: 'speak', item: s, ans: s.fr, ref: ['s', s.lesson, s.fr] }; }
 
 function buildLesson(l, level = 1) {
@@ -757,9 +785,11 @@ function nextEx() {
   setProgress();
   const body = $('#q-body'); body.scrollTop = 0;
   const [icn, lab] = TYPE_LABEL[Q.ex.t];
-  const head = `<div class="qtype">${ic(icn)} ${lab}</div>`;
+  const head = ['build', 'build-es', 'listen'].includes(Q.ex.t) ? '' : `<div class="qtype">${ic(icn)} ${lab}</div>`;
   RENDER_EX[Q.ex.t](body, Q.ex, head);
   hydratePiaf(body);
+  const more = () => body.classList.toggle('more', body.scrollHeight - body.scrollTop > body.clientHeight + 6);
+  body.onscroll = more; setTimeout(more, 60);
 }
 const setAnswer = v => { Q.answer = v; $('#q-check').disabled = v == null || v === '' || (Array.isArray(v) && !v.length); };
 
@@ -789,7 +819,7 @@ const RENDER_EX = {
   fill(body, ex, head) {
     const [a, b] = ex.item.q.split('___');
     body.innerHTML = head + `<h2 class="qtitle">Elegí la palabra que falta</h2>${ex.hint ? `<div class="vhint">${esc(ex.hint)}</div>` : ''}
-      <div class="fill-sent">${esc(a)}<span class="gap" id="gap">&nbsp;</span>${esc(b || '')}</div>
+      <div class="fill-sent">${esc(a)}<span class="gap" id="gap">&nbsp;</span>${esc(b || '')}</div>${ex.item.es ? `<div class="fill-es">${esc(ex.item.es)}</div>` : ''}
       <div class="options">${ex.opts.map(o => `<button class="opt" data-i="${o.i}"><span class="k">${ic('pencil')}</span>${esc(o.o)}</button>`).join('')}</div>`;
     $$('.opt', body).forEach(btn => btn.onclick = () => { if (Q.locked) return; sfx.tap(); $$('.opt', body).forEach(x => x.classList.remove('sel')); btn.classList.add('sel'); const v = ex.item.opts[btn.dataset.i]; $('#gap').textContent = v; setAnswer(v); });
   },
@@ -1400,6 +1430,9 @@ function checkTyped(ans, target) {
   const flat = x => deacc(x).replace(/['-]/g, ' ').replace(/\s+/g, ' ').trim();
   const da = flat(a), dt = flat(t);
   if (da === dt) return { ok: true, note: 'Ojo con los acentos y los apóstrofos.' };
+  // terminaisons muettes (arrivé / arrivée / arrivés) : impossibles à distinguer à l'oreille
+  const mute = x => x.split(' ').map(w => (w.length > 3 ? w.replace(/(es|e|s)$/, '') : w)).join(' ');
+  if (mute(da) === mute(dt)) return { ok: true, note: 'Suena igual: fijate en las letras mudas del final.' };
   if (lev(da, dt) <= (dt.length > 14 ? 2 : 1)) return { ok: true, note: 'Casi perfecto: mirá bien la ortografía.' };
   return { ok: false, note: '' };
 }
@@ -1564,7 +1597,7 @@ window.onResumeApp = () => { if (screen === 'home') { updateTop(); RENDER[tab]()
 const baseFinish = finishQuiz;
 
 if (location.hostname === 'localhost') {
-  window.__dbg = { Q: () => Q, S: () => S, tokens };
+  window.__dbg = { Q: () => Q, S: () => S, tokens, bankTokens };
   // aperçu de développement : toujours muet (ni effets, ni voix)
   S.set.sound = false; player.muted = true; player.volume = 0;
 }

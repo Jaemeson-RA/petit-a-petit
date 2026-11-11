@@ -98,6 +98,7 @@ function streakAlive() { return S.last && dayDiff(S.last, today()) <= 1; }
 function addXP(n) {
   const t = today();
   if (boostOn()) n *= 2;
+  if (S.last !== t) settleStreak(); // jour manqué pendant que l'appli restait ouverte
   bump('xp', n);
   S.xp += n;
   S.days[t] = (S.days[t] || 0) + n;
@@ -139,7 +140,7 @@ function settleStreak() {
   const missed = d - 1;
   let msg = null;
   if (S.streak > 0 && (S.freeze || 0) >= missed) { S.freeze -= missed; S.last = dateShift(-1); msg = `¡Guau! Shelby cuidó tu racha de ${S.streak} día${S.streak > 1 ? 's' : ''}.`; }
-  else if (S.streak > 0) { S.streak = 0; }
+  else if (S.streak > 0) { S.lostStreak = S.streak; S.streak = 0; } // on s'en souvient pour proposer de la récupérer
   save();
   return msg;
 }
@@ -1499,6 +1500,36 @@ const streakMsg = settleStreak();
 quests();
 if (!S.onboarded) { if (S.xp === 0 && !Object.keys(S.nodes).length) setTimeout(welcome, 400); else { S.onboarded = true; save(); } }
 if (streakMsg) setTimeout(() => toast(streakMsg), 900);
+
+/* Série perdue : on propose tout de suite de la récupérer (truco), sans avoir à chercher le bouton. */
+function offerStreak() {
+  if (!S.lostStreak || screen !== 'home' || !$('#pop').hidden) return;
+  const n = S.lostStreak;
+  pop(`<span class="npc-art small">${animal('Shelby')}</span><h2>Se cortó tu racha</h2>
+    <p>Tenías <b style="color:var(--orange-d)">${n} día${n > 1 ? 's' : ''} seguidos</b> y te perdiste uno. Shelby no llegó a cuidarla… pero podemos hacer un truco.</p>
+    <button class="btn primary wide" id="sk-yes">${ic('wand-sparkles')} Recuperar mi racha</button>
+    <button class="btn ghost wide" id="sk-no">Empezar de cero</button>`, box => {
+    $('#sk-yes', box).onclick = () => {
+      // si elle a déjà fait une leçon aujourd'hui, la série reprend avec ce jour en plus
+      if (S.last === today()) S.streak = n + Math.max(1, S.streak);
+      else { S.streak = n; S.last = dateShift(-1); }
+      S.best = Math.max(S.best, S.streak); S.lostStreak = 0;
+      save(); closePop(); updateTop(); sfx.win(); haptic('ok');
+      if (screen === 'home') RENDER[tab]();
+      toast(S.last === today() ? `¡Racha de ${S.streak} días recuperada!` : `¡Racha de ${n} día${n > 1 ? 's' : ''} recuperada! Hacé una lección hoy para seguirla.`);
+    };
+    $('#sk-no', box).onclick = () => { S.lostStreak = 0; save(); closePop(); };
+  });
+}
+setTimeout(offerStreak, 1200);
+// l'appli peut rester ouverte plusieurs jours : on revérifie quand elle revient au premier plan
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const msg = settleStreak();
+  if (screen === 'home') { updateTop(); RENDER[tab](); }
+  if (msg) toast(msg);
+  setTimeout(offerStreak, 600);
+});
 hydratePiaf();
 updateTop();
 setTab('learn');

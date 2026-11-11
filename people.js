@@ -125,25 +125,31 @@ window.person = (name, gender, opts = {}) => {
     <g clip-path="url(#${id})"><rect width="100" height="100" fill="${p.bg}"/>
     ${hairBack(p)}${body(p)}${face(p)}${hairFront(p)}${hat(p)}</g></svg>`;
 };
-/* Shelby (le chien) et Jacques (le chat) */
+/* Shelby (la chienne golden retriever) et Jacques (le chat gris) */
 window.animal = (name, opts = {}) => {
   const id = 'an' + Math.random().toString(36).slice(2, 8);
   const cls = 'person animal' + (opts.talking ? ' talking' : '');
   const wrap = (bg, inner) => `<svg class="${cls}" viewBox="0 0 100 100" aria-label="${name}"><defs><clipPath id="${id}"><circle cx="50" cy="50" r="50"/></clipPath></defs><g clip-path="url(#${id})"><rect width="100" height="100" fill="${bg}"/>${inner}</g></svg>`;
   if (name === 'Shelby') {
     return wrap('#FFE9C7',
-      `<path d="M20 104c0-22 13-32 30-32s30 10 30 32z" fill="#E0A458"/>
-       <path d="M36 80h28v7q-14 6-28 0z" fill="#E5484D"/><circle cx="50" cy="90" r="4" fill="#FFC93C" stroke="#D9A21A" stroke-width="1"/>
-       <path class="an-earl" d="M30 30c-12 2-17 16-13 30 7 2 13-4 15-14z" fill="#B9783A"/>
-       <path class="an-earr" d="M70 30c12 2 17 16 13 30-7 2-13-4-15-14z" fill="#B9783A"/>
-       <ellipse cx="50" cy="46" rx="23" ry="24" fill="#E0A458"/>
-       <path d="M50 24c-5 6-6 14-4 22h8c2-8 1-16-4-22z" fill="#F7E3C0"/>
-       <ellipse cx="50" cy="59" rx="14" ry="11.5" fill="#F7E3C0"/>
-       <g class="pp-eyes"><ellipse cx="40.5" cy="43" rx="3.2" ry="3.8" fill="${DARK}"/><ellipse cx="59.5" cy="43" rx="3.2" ry="3.8" fill="${DARK}"/><circle cx="41.6" cy="41.8" r="1.1" fill="#fff"/><circle cx="60.6" cy="41.8" r="1.1" fill="#fff"/></g>
-       <path d="M36 36q4-3 8-1M64 36q-4-3-8-1" stroke="#B9783A" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-       <ellipse cx="50" cy="54" rx="4.6" ry="3.4" fill="${DARK}"/><path d="M50 57v4" stroke="${DARK}" stroke-width="1.6"/>
-       <path class="pp-smile" d="M43 61q3.5 4 7 0q3.5 4 7 0" stroke="${DARK}" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-       <path class="an-tongue" d="M46.5 63h7v5a3.5 3.5 0 0 1-7 0z" fill="#FF7B93"/>`);
+      // golden retriever : robe dorée unie, oreilles tombantes à franges, museau large, poitrail clair, pas de liste blanche
+      `<path d="M16 104c0-23 15-33 34-33s34 10 34 33z" fill="#E2A548"/>
+       <path d="M33 104c1-15 8-25 17-25s16 10 17 25z" fill="#F4D08C"/>
+       <path d="M40 84l3 7 3-6 4 8 4-8 3 6 3-7" stroke="#EDBF6E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+       <path d="M35 76h30v7q-15 6-30 0z" fill="#E8508A"/><circle cx="50" cy="86.5" r="3.8" fill="#FFC93C" stroke="#D9A21A" stroke-width="1"/>
+       <path class="an-earl" d="M31 25c-11 3-17 14-16 27 0 6 3 10 6 9 1 3 5 3 6 0 3 1 6-1 6-5l1-24z" fill="#C8842D"/>
+       <path class="an-earr" d="M69 25c11 3 17 14 16 27 0 6-3 10-6 9-1 3-5 3-6 0-3 1-6-1-6-5l-1-24z" fill="#C8842D"/>
+       <path d="M19 44q2 6 1 12M24 46q1 7 1 13M81 44q-2 6-1 12M76 46q-1 7-1 13" stroke="#B37424" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".7"/>
+       <ellipse cx="50" cy="45" rx="23" ry="23.5" fill="#E2A548"/>
+       <path d="M43 23q3-4 7-1q4-3 7 1q-7 3-14 0z" fill="#EDBF6E"/>
+       <ellipse cx="50" cy="57.5" rx="15.5" ry="12.5" fill="#F0C77A"/>
+       <path d="M36 35.5q4-3 8-1M64 35.5q-4-3-8-1" stroke="#B37424" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+       <g class="pp-eyes"><ellipse cx="40.5" cy="42.5" rx="3.3" ry="3.9" fill="#3A2516"/><ellipse cx="59.5" cy="42.5" rx="3.3" ry="3.9" fill="#3A2516"/><circle cx="41.7" cy="41.2" r="1.2" fill="#fff"/><circle cx="60.7" cy="41.2" r="1.2" fill="#fff"/></g>
+       <path d="M44 52.5q6-4.5 12 0q0 4-6 5q-6-1-6-5z" fill="${DARK}"/><ellipse cx="48.5" cy="52.6" rx="1.6" ry=".9" fill="#fff" opacity=".35"/>
+       <path d="M50 57.5v2.5" stroke="${DARK}" stroke-width="1.5"/>
+       <path class="pp-smile" d="M40.5 59.5q4.5 5.5 9.5.5q5 5 9.500-.5" stroke="${DARK}" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+       <path d="M43 61.5q7 6.5 14 0q-7 2.500-14 0z" fill="#7A3B3B"/>
+       <path class="an-tongue" d="M46.200 62.500q3.800 2 7.600 0v5.500a3.800 3.800 0 0 1-7.600 0z" fill="#FF7B93"/><path d="M50 63.500v5" stroke="#E85D7A" stroke-width=".9"/>`);
   }
   return wrap('#E4EAFF',
     `<path d="M22 104c0-20 12-30 28-30s28 10 28 30z" fill="#8E97A6"/>

@@ -49,6 +49,7 @@ const Bridge = window.Bridge || webBridge();
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const ic = (n, cls = '') => `<svg class="ic ${cls}"><use href="#i-${n}"/></svg>`;
+const art = (slug, cls = '') => slug ? `<img class="em ${cls}" src="art/${slug}.svg" alt="" decoding="async" draggable="false">` : '';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rand = a => a[Math.floor(Math.random() * a.length)];
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -67,7 +68,7 @@ const dayDiff = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12
 const DEF = { xp: 0, streak: 0, best: 0, last: null, days: {}, goal: 30, nodes: {}, mistakes: [], seen: {},
   hearts: 5, heartAt: 0, coins: 0, freeze: 0, boostUntil: 0, quests: null, chests: {}, badges: {},
   stats: { lessons: 0, perfect: 0, dialogs: 0, stories: 0, practice: 0, bestCombo: 0, bought: 0 }, onboarded: false,
-  set: { speak: true, sound: true, autoplay: true, unlockAll: false, haptic: true, hearts: true }, speakOff: 0 };
+  set: { speak: true, sound: true, autoplay: true, unlockAll: false, haptic: true, hearts: true, theme: 'auto' }, speakOff: 0 };
 let S;
 /* La progression ne doit JAMAIS se perdre entre deux versions : on complète l'ancien état avec les nouveaux
    champs (jamais l'inverse), on garde la même clé de stockage, et une copie de secours est écrite au démarrage. */
@@ -400,11 +401,13 @@ const pool = ls => ({
 });
 
 /* ============ Piaf (mascotte) ============ */
-function piaf(mood = 'happy') {
+function piaf(mood = 'happy', prop = '') {
   const open = r => `<g class="pf-eyes"><circle cx="41" cy="50" r="${r}" fill="#1E2A3A"/><circle cx="59" cy="50" r="${r}" fill="#1E2A3A"/><circle cx="42.6" cy="48.4" r="1.7" fill="#fff"/><circle cx="60.6" cy="48.4" r="1.7" fill="#fff"/></g>`;
   const eyes = mood === 'wow' ? open(5.2)
     : mood === 'sad'
       ? '<path d="M35 46l9 3M65 46l-9 3" stroke="#1E2A3A" stroke-width="2.4" stroke-linecap="round"/><g class="pf-eyes"><circle cx="41" cy="52" r="3.6" fill="#1E2A3A"/><circle cx="59" cy="52" r="3.6" fill="#1E2A3A"/></g><path d="M66 56q2 5 0 7q-2-2 0-7z" fill="#8FC1FF"/>'
+      : mood === 'zzz'
+        ? '<path d="M36 52q5 4 10 0M54 52q5 4 10 0" stroke="#1E2A3A" stroke-width="3" fill="none" stroke-linecap="round"/><text x="74" y="30" font-size="15" font-weight="800" fill="#7B5CFF" font-family="Nunito,sans-serif">z</text><text x="84" y="19" font-size="11" font-weight="800" fill="#7B5CFF" font-family="Nunito,sans-serif">z</text>'
       : mood === 'joy'
         ? '<path d="M36 51q5-6 10 0M54 51q5-6 10 0" stroke="#1E2A3A" stroke-width="3.2" fill="none" stroke-linecap="round"/>'
         : open(4.2);
@@ -420,9 +423,14 @@ function piaf(mood = 'happy') {
     ${eyes}${beak}
     <path d="M24 38c6-17 47-19 54-2-15-6-39-6-54 2z" fill="#E5484D"/>
     <circle cx="52" cy="22" r="4" fill="#E5484D"/>
+    ${{
+      phones: '<path d="M21 50a29 29 0 0 1 58 0" fill="none" stroke="#1E2A3A" stroke-width="5" stroke-linecap="round"/><rect x="13" y="46" width="12" height="20" rx="6" fill="#FFC93C" stroke="#1E2A3A" stroke-width="2"/><rect x="75" y="46" width="12" height="20" rx="6" fill="#FFC93C" stroke="#1E2A3A" stroke-width="2"/>',
+      book: '<path d="M28 72l22 5 22-5v17l-22 5-22-5z" fill="#fff" stroke="#1E2A3A" stroke-width="2.2" stroke-linejoin="round"/><path d="M50 77v17" stroke="#1E2A3A" stroke-width="2"/><path d="M33 78l12 3M33 83l12 3M55 81l12-3M55 86l12-3" stroke="#B8C2D6" stroke-width="1.6" stroke-linecap="round"/>',
+      pencil: '<g transform="rotate(32 80 66)"><rect x="76.500" y="48" width="7" height="24" fill="#FFC93C" stroke="#1E2A3A" stroke-width="1.6"/><path d="M76.500 72h7l-3.500 8z" fill="#F4D7A8" stroke="#1E2A3A" stroke-width="1.6" stroke-linejoin="round"/><rect x="76.500" y="43" width="7" height="6" rx="1.500" fill="#FF8FA3" stroke="#1E2A3A" stroke-width="1.6"/></g>',
+    }[prop] || ''}
   </svg>`;
 }
-function hydratePiaf(root = document) { $$('[data-piaf]', root).forEach(el => { el.innerHTML = piaf(el.dataset.piaf === 'mini' ? 'happy' : el.dataset.piaf); }); }
+function hydratePiaf(root = document) { $$('[data-piaf]', root).forEach(el => { el.innerHTML = piaf(el.dataset.piaf === 'mini' ? 'happy' : el.dataset.piaf, el.dataset.prop || ''); }); }
 
 /* ============ navigation ============ */
 let screen = 'home', tab = 'learn';
@@ -479,13 +487,15 @@ function renderLearn() {
   const pdj = phraseOfDay();
   const h = new Date().getHours();
   const saludo = h < 12 ? 'Bonjour' : h < 19 ? 'Bonjour' : 'Bonsoir';
-  let html = `<div class="hello"><span class="piaf" data-piaf="happy"></span>
+  let html = `<div class="hello"><span class="piaf" data-piaf="${S.last !== today() && h >= 21 ? 'zzz' : 'happy'}"></span>
     <div class="bubble"><small>${saludo}, ${NAME} · la frase del día</small>
     ${pdj ? `<div class="pdj"><button class="say" data-au="${pdj.au}">${ic('volume-2')}</button><div><b>${esc(pdj.fr)}</b><div class="pdj-es">${esc(pdj.es)}</div></div></div>` : ''}</div></div>`;
   const li = levelInfo(), td = S.days[today()] || 0;
   html += `<div class="hero"><span class="lv">${li.L}</span><div class="hero-main"><small>Nivel ${li.L} · ${li.name}</small>
     <div class="q-bar"><i style="width:${li.pct}%"></i><span>${S.xp} XP · faltan ${li.left}</span></div>
     <div class="hero-goal">${ic('target')} Hoy: ${td} / ${S.goal} XP${boostOn() ? ` · ${ic('rocket')} XP ×2` : ''}</div></div></div>`;
+  const nDue = srsDue().length;
+  if (nDue) html += `<button class="srs-card" id="h-srs">${art('light_bulb')}<span><b>Repaso del día</b><small>${nDue} palabra${nDue > 1 ? 's' : ''} para no olvidar</small></span>${ic('chevron-right')}</button>`;
   if (cur) {
     const u = cur.unit;
     html += `<button class="continue-card" data-node="${cur.id}" style="--u:${u.color[0]};--u-d:${u.color[1]}">
@@ -493,20 +503,24 @@ function renderLearn() {
   }
   UNITS.forEach((u, ui) => {
     html += `<section class="unit" style="--u:${u.color[0]};--u-d:${u.color[1]}">
-      <div class="unit-head"><span class="u-art">${ic(UNIT_ART[ui % UNIT_ART.length])}</span><div><small>Unidad ${ui}</small><h2>${esc(u.title)}</h2><p>${esc(u.subtitle || '')}</p></div>
+      <div class="unit-head"><span class="u-stick">${(u.art || []).slice(0, 3).map((a, k) => art(a, 's' + k)).join('')}</span><div><small>Unidad ${ui}</small><h2>${esc(u.title)}</h2><p>${esc(u.subtitle || '')}</p></div>
       <button class="u-guide" data-guide="${u.id}" aria-label="Guía de la unidad">${ic('notebook-text')}</button></div><div class="path">`;
     u.nodes.forEach((n, i) => {
       const done = isDone(n.id), open = isOpen(n.id), current = cur && cur.id === n.id;
       const x = Math.round(Math.sin(i * 0.9) * 78);
       const stars = n.type === 'lesson' ? `<span class="stars">${[1, 2, 3].map(k => ic('crown', lvlOf(n.id) >= k ? 'on' : '')).join('')}</span>` : '';
       const side = x > 0 ? 'l' : 'r';
+      const nart = n.type === 'lesson' ? n.lesson.art : n.type === 'dialog' ? 'speech_balloon' : n.type === 'story' ? 'open_book' : 'trophy';
+      const far = side === 'l' ? 'dr' : 'dl'; // côté libre (à l'opposé du titre)
+      const deco = current ? `<span class="piaf here ${far}" data-piaf="happy"></span>`
+        : i % 2 === 1 && u.art && u.art.length > 3 ? `<span class="decor ${far}">${art(u.art[3 + ((i >> 1) % (u.art.length - 3))])}</span>` : '';
       html += `<div class="node ${n.type} ${done ? 'done' : ''} ${open ? '' : 'locked'} ${current ? 'current' : ''}" style="transform:translateX(${x}px)" data-node="${n.id}" role="button">
         ${current ? `<span class="start-tag">${isDone(ORDER[0].id) ? 'Seguir' : 'Empezar'}</span>` : ''}
-        <span class="disc">${open ? ic(done && n.type === 'lesson' ? 'check' : n.icon) : ic('lock')}</span>${stars}
-        <span class="node-label ${side}">${esc(n.title)}</span></div>`;
+        <span class="disc">${open ? (nart ? art(nart) : ic(n.icon)) : ic('lock')}${done ? `<i class="ok">${ic('check')}</i>` : ''}</span>${stars}
+        <span class="node-label ${side}">${esc(n.title)}</span>${deco}</div>`;
       if (i === 3) {
         const cid = 'chest-' + u.id, got = !!S.chests[cid], avail = isDone(n.id) || S.set.unlockAll;
-        html += `<div class="node chest ${got ? 'done' : avail ? 'ready' : 'locked'}" style="transform:translateX(${Math.round(Math.sin((i + .5) * 0.9) * 78)}px)" data-chest="${cid}" data-amt="${20 + ui * 5}" data-ok="${avail ? 1 : 0}" role="button"><span class="disc">${ic(got ? 'package-open' : 'gift')}</span></div>`;
+        html += `<div class="node chest ${got ? 'done' : avail ? 'ready' : 'locked'}" style="transform:translateX(${Math.round(Math.sin((i + .5) * 0.9) * 78)}px)" data-chest="${cid}" data-amt="${20 + ui * 5}" data-ok="${avail ? 1 : 0}" role="button"><span class="disc">${art('wrapped_gift')}${got ? `<i class="ok">${ic('check')}</i>` : ''}</span></div>`;
       }
     });
     html += `</div></section>`;
@@ -514,6 +528,8 @@ function renderLearn() {
   html += `<div class="path-end"><div class="end-art"><svg class="eiffel" viewBox="0 0 60 100"><path d="M30 2v10M27 12h6l3 28H24zM21 40h18l6 30H15zM13 70h34l8 28H43c0-8-5-13-13-13S17 90 17 98H5z" fill="currentColor"/><path d="M22 40h16M14 70h32" stroke="var(--bg)" stroke-width="3"/></svg><span class="piaf" data-piaf="wow"></span></div><div>Al final del camino: ¡nivel A2!</div></div>`;
   el.innerHTML = html;
   hydratePiaf(el);
+  drawTrails(el);
+  const hs = $('#h-srs', el); if (hs) hs.onclick = () => startQuiz(buildSrs(), { title: 'Repaso del día', xp: 10, practice: 'srs' });
   $$('[data-node]', el).forEach(b => b.onclick = () => openNode(b.dataset.node));
   $$('[data-guide]', el).forEach(b => b.onclick = () => openGuide(b.dataset.guide));
   $$('[data-chest]', el).forEach(b => b.onclick = () => b.dataset.ok === '1' ? openChest(b.dataset.chest, +b.dataset.amt) : (sfx.bad(), toast('Terminá la lección de arriba para abrir el cofre')));
@@ -542,13 +558,13 @@ function openIntro(l, guideMode = false) {
   const lv = lvlOf(l.id); let sel = Math.min(3, lv + 1);
   el.style.setProperty('--u', u.color[0]); el.style.setProperty('--u-d', u.color[1]);
   el.innerHTML = `<div class="intro-head"><button class="icon-btn" id="i-back">${ic('arrow-left')}</button>
-      <small>Unidad ${UNITS.indexOf(u)} · Lección ${l.n}</small><h1>${esc(l.title)}</h1></div>
+      <small>Unidad ${UNITS.indexOf(u)} · Lección ${l.n}</small><h1>${esc(l.title)}</h1>${l.art ? `<span class="intro-art">${art(l.art)}</span>` : ''}</div>
     <div class="intro-body">
       ${l.video ? `<button class="vthumb" id="i-video" style="background-image:url(https://i.ytimg.com/vi/${l.video}/hqdefault.jpg)"><span class="play">${ic('play')}</span><span class="vlabel">${ic('clapperboard')} Mirá la clase en video</span></button>` : ''}
       <div class="sec-t">La mini clase</div>
       <div class="tip">${l.tip || ''}</div>
       <div class="sec-t">Palabras de la lección · tocá para escuchar</div>
-      <div class="vocab-list">${l.vocab.map((v, i) => `<button class="vchip" data-v="${i}">${v.ic ? `<span class="vic">${ic(v.ic)}</span>` : ''}<div><b>${esc(v.fr)}</b><span>${esc(v.es)}</span></div></button>`).join('')}</div>
+      <div class="vocab-list">${l.vocab.map((v, i) => `<button class="vchip" data-v="${i}">${v.art ? `<span class="vart">${art(v.art)}</span>` : ''}<div><b>${esc(v.fr)}</b><span>${esc(v.es)}</span></div></button>`).join('')}</div>
       <div class="sec-t">Frases modelo</div>
       ${l.sentences.slice(0, 4).map((s, i) => `<button class="word" data-s="${i}"><div><div class="w-fr">${esc(s.fr)}</div><div class="w-es">${esc(s.es)}</div></div>${ic('volume-2')}</button>`).join('')}
     </div>
@@ -606,13 +622,13 @@ function exPickFr(v, vs) {
 }
 const ART = ['#2E5BFF', '#12A48B', '#FF8A1C', '#7B5CFF', '#E8508A', '#1BA3E0'];
 function exPickImg(v, vs) {
-  const others = sample(vs.filter(x => x.ic && x.ic !== v.ic && norm(x.es) !== norm(v.es) && norm(x.fr) !== norm(v.fr))
-    .filter((x, i, a) => a.findIndex(y => y.ic === x.ic) === i), 3);
+  const others = sample(vs.filter(x => x.art && x.art !== v.art && norm(x.es) !== norm(v.es) && norm(x.fr) !== norm(v.fr))
+    .filter((x, i, a) => a.findIndex(y => y.art === x.art) === i), 3);
   if (others.length < 2) return null;
   const col = shuffle(ART);
   return { t: 'pickimg', item: v, opts: shuffle([v, ...others]).map((o, i) => ({ ...o, col: col[i] })), ans: v.fr, ref: ['v', v.lesson, v.fr] };
 }
-const imgPool = (V, extra) => { const own = V.filter(v => v.ic); return own.length >= 4 ? own : own.concat(extra.filter(v => v.ic && !own.includes(v))); };
+const imgPool = (V, extra) => { const own = V.filter(v => v.art); return own.length >= 4 ? own : own.concat(extra.filter(v => v.art && !own.includes(v))); };
 function distractors(target, from, n) {
   const have = new Set(tokens(target).map(t => t.toLowerCase()));
   const cand = [...new Set(from.flatMap(s => tokens(s)).filter(t => !have.has(t.toLowerCase())))];
@@ -644,7 +660,7 @@ function buildLesson(l, level = 1) {
   const takeG = () => gq.length ? gq.shift() : null;
   const first = !isDone(l.id);
   // exercices en images si la leçon a des mots illustrés
-  const withIc = shuffle(V.filter(v => v.ic));
+  const withIc = shuffle(V.filter(v => v.art));
   const IP = imgPool(V, pool(l.unit.lessons).vocab);
   if (withIc.length) {
     const a = exPickImg(withIc[0], IP); if (a) { ex.push(a); const k = vq.findIndex(x => x.fr === withIc[0].fr); if (k >= 0) vq.splice(k, 1); }
@@ -671,7 +687,7 @@ function buildReview(u) {
   const P = pool(u.lessons);
   const ex = [];
   for (let i = 0; i < 3; i++) ex.push(exPick(rand(P.vocab), P.vocab));
-  const iv = P.vocab.filter(v => v.ic);
+  const iv = P.vocab.filter(v => v.art);
   if (iv.length >= 3) sample(iv, 2).forEach(v => { const e = exPickImg(v, iv); if (e) ex.push(e); });
   ex.push(exMatch(P.vocab));
   sample(P.gram, 4).forEach(g => ex.push(exFill(g)));
@@ -702,7 +718,7 @@ function practiceSet(kind) {
   const ls = doneLessons(); const P = pool(ls);
   if (kind === 'listen') return sample(P.sent, 10).map(s => exListen(s, P.sent));
   if (kind === 'speak') return sample(P.sent, 8).map(exSpeak);
-  if (kind === 'words') { const ex = []; const iv = P.vocab.filter(v => v.ic);
+  if (kind === 'words') { const ex = []; const iv = P.vocab.filter(v => v.art);
     if (iv.length >= 3) sample(iv, 3).forEach(v => { const e = exPickImg(v, iv); if (e) ex.push(e); }); for (let i = 0; i < 4; i++) ex.push(exPick(rand(P.vocab), P.vocab)); ex.push(exMatch(P.vocab)); for (let i = 0; i < 3; i++) ex.push(exPickFr(rand(P.vocab), P.vocab)); ex.push(exMatch(P.vocab)); return ex; }
   if (kind === 'grammar') return sample(P.gram, 10).map(exFill);
   // mélange
@@ -747,8 +763,8 @@ function nextEx() {
 }
 const setAnswer = v => { Q.answer = v; $('#q-check').disabled = v == null || v === '' || (Array.isArray(v) && !v.length); };
 
-function promptBubble(text, au, sub = '') {
-  return `<div class="prompt"><span class="piaf" data-piaf="happy"></span><div class="bubble"><div class="line">${au ? `<button class="say" data-play="${au}">${ic('volume-2')}</button>` : ''}<span>${esc(text)}</span></div>${sub}</div></div>`;
+function promptBubble(text, au, sub = '', prop = '') {
+  return `<div class="prompt"><span class="piaf" data-piaf="happy" data-prop="${prop}"></span><div class="bubble"><div class="line">${au ? `<button class="say" data-play="${au}">${ic('volume-2')}</button>` : ''}<span>${esc(text)}</span></div>${sub}</div></div>`;
 }
 function wirePlay(root) { $$('[data-play]', root).forEach(b => b.onclick = () => play(b.dataset.play, b.dataset.slow === '1')); }
 
@@ -762,7 +778,7 @@ const RENDER_EX = {
   },
   pickimg(body, ex, head) {
     body.innerHTML = head + `<h2 class="qtitle">¿Cuál es «${esc(ex.item.es)}»?</h2>` +
-      `<div class="imgs">${ex.opts.map((o, i) => `<button class="imgcard" data-i="${i}"><span class="art" style="background:${o.col}">${ic(o.ic)}</span>${esc(o.fr)}</button>`).join('')}</div>`;
+      `<div class="imgs">${ex.opts.map((o, i) => `<button class="imgcard" data-i="${i}"><span class="art-big">${art(o.art)}</span>${esc(o.fr)}</button>`).join('')}</div>`;
     $$('.imgcard', body).forEach(b => b.onclick = () => { if (Q.locked) return; const o = ex.opts[b.dataset.i]; play(o.au); $$('.imgcard', body).forEach(x => x.classList.remove('sel')); b.classList.add('sel'); setAnswer(o.fr); });
   },
   pickfr(body, ex, head) {
@@ -780,7 +796,7 @@ const RENDER_EX = {
   build(body, ex, head) { buildUI(body, ex, head, `<h2 class="qtitle">Traducí esta frase</h2>` + promptBubble(ex.item.es)); },
   'build-es'(body, ex, head) { buildUI(body, ex, head, `<h2 class="qtitle">Traducí al español</h2>` + promptBubble(ex.item.fr, ex.item.au)); if (S.set.autoplay) setTimeout(() => play(ex.item.au), 250); },
   listen(body, ex, head) {
-    buildUI(body, ex, head, `<h2 class="qtitle">Tocá lo que escuchás</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`);
+    buildUI(body, ex, head, `<h2 class="qtitle">Tocá lo que escuchás</h2><div class="big-say"><span class="piaf listener" data-piaf="happy" data-prop="phones"></span><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`);
     setTimeout(() => play(ex.item.au), 300);
   },
   match(body, ex, head) {
@@ -855,6 +871,11 @@ function buildUI(body, ex, head, top) {
     const t = document.createElement('button'); t.className = 'tok'; t.textContent = ex.bank[i];
     t.onclick = () => { if (Q.locked) return; sfx.tap(); chosen.splice(chosen.indexOf(i), 1); t.remove(); b.classList.remove('used'); refresh(); };
     ans.appendChild(t); refresh();
+    try {
+      t.style.animation = 'none';
+      const r0 = b.getBoundingClientRect(), r1 = t.getBoundingClientRect();
+      t.animate([{ transform: `translate(${r0.left - r1.left}px,${r0.top - r1.top}px) scale(1.04)` }, { transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.3,1)' });
+    } catch { }
   });
 }
 
@@ -890,8 +911,8 @@ function judge(ok, extra = '') {
   // Piaf réagit : saut de joie ou petite mine triste
   const fp = $('.fb-piaf', fb);
   fp.innerHTML = piaf(ok ? 'joy' : 'sad'); fp.className = 'fb-piaf piaf ' + (ok ? 'jump flap' : 'droop');
-  const pp = $('#q-body .prompt .piaf');
-  if (pp) { pp.innerHTML = piaf(ok ? 'joy' : 'sad'); pp.className = 'piaf ' + (ok ? 'jump flap' : 'droop'); }
+  const pp = $('#q-body .prompt .piaf') || $('#q-body .listener');
+  if (pp) { pp.innerHTML = piaf(ok ? 'joy' : 'sad', pp.dataset.prop || ''); pp.className = 'piaf ' + (pp.classList.contains('listener') ? 'listener ' : '') + (ok ? 'jump flap' : 'droop'); }
   $('.fb-ico', fb).style.color = ok ? 'var(--green)' : 'var(--red)';
   let text = '';
   const correct = ex.t === 'fill' ? ex.full : ex.t === 'pickfr' ? ex.ans : ex.ans;
@@ -910,6 +931,7 @@ function judge(ok, extra = '') {
     // l'audio de la bonne réponse
     const au = ex.t === 'fill' ? ex.item.au : ex.item && ex.item.au;
     if (au && ex.t !== 'pick') setTimeout(() => play(au), 120);
+    srsUpdate(ex.ref, true);
     if (ex.ref) S.mistakes = S.mistakes.filter(m => m.ref.join('|') !== ex.ref.join('|'));
   } else {
     $('.fb-title', fb).textContent = ex.t === 'speak' ? 'Casi…' : 'Respuesta correcta:';
@@ -920,6 +942,7 @@ function judge(ok, extra = '') {
     Q.wrong++; Q.combo = 0;
     if (Q.meta.hearts && !ex.dq) { loseHeart(); updateHearts(); }
     sfx.bad(); haptic('error');
+    srsUpdate(ex.ref, false);
     if (ex.ref) { S.mistakes = S.mistakes.filter(m => m.ref.join('|') !== ex.ref.join('|')); S.mistakes.push({ ref: ex.ref, t: ex.t }); S.mistakes = S.mistakes.slice(-60); }
     // on la repropose à la fin (une fois)
     if (!Q.retried.has(Q.i) && ex.t !== 'speak') { Q.retried.add(Q.list.length); Q.list.push(regen(ex)); Q.total++; }
@@ -999,7 +1022,7 @@ function results(r) {
   el.innerHTML = `<div class="confetti" id="conf"></div><div class="done-wrap"><span class="piaf ${r.acc == null || r.acc >= 75 ? 'party flap' : ''}" data-piaf="${r.acc == null || r.acc >= 75 ? 'joy' : 'happy'}"></span>
     <h1>${esc(r.title)}</h1><p>${esc(r.sub || '')}</p>
     ${r.stars ? `<div class="done-stars">${[1, 2, 3].map(k => ic('star', r.stars >= k ? 'on' : '')).join('')}</div>` : ''}
-    <div class="res"><div class="r1"><small>XP ganada</small><b>${ic('zap')} ${r.xp}</b></div>
+    <div class="res"><div class="r1"><small>XP ganada</small><b>${ic('zap')} <span id="r-xp">${r.xp}</span></b></div>
     <div class="r2"><small>${r.acc != null ? 'Precisión' : 'Diálogo'}</small><b>${ic('target')} ${r.acc != null ? r.acc + '%' : 'OK'}</b></div>
     <div class="r3"><small>Tiempo</small><b>${ic('timer')} ${mins}:${String(secs).padStart(2, '0')}</b></div></div>
     <div class="perks">
@@ -1016,6 +1039,7 @@ function results(r) {
   hydratePiaf(el);
   $('#d-ok').onclick = () => { goHome(); if (r.levelUp) setTimeout(() => pop(`<span class="piaf party flap" data-piaf="joy"></span><h2>¡Nivel ${r.levelUp}!</h2><p class="big-coins">${esc(levelName(r.levelUp))}</p><p>Seguí así, ${NAME}.</p><button class="btn primary wide" data-close>Merci !</button>`), 350); else if (r.badges && r.badges.length) setTimeout(() => badgePop(r.badges), 350); else if (r.questsDone) toast('¡Tenés un desafío para cobrar!'); };
   show('done');
+  countUp($('#r-xp'), r.xp);
   sfx.win(); haptic('ok');
   const conf = $('#conf'), cols = ['#2E5BFF', '#FF9F1C', '#21A35B', '#E5484D', '#FFC93C', '#7B5CFF'];
   for (let i = 0; i < 46; i++) { const c = document.createElement('i'); c.style.left = Math.random() * 100 + '%'; c.style.background = rand(cols); c.style.animationDuration = 1.6 + Math.random() * 1.8 + 's'; c.style.animationDelay = Math.random() * .6 + 's'; conf.appendChild(c); }
@@ -1033,7 +1057,7 @@ function openDialog(d, roleplay = false) {
   const el = $('#dlg');
   el.innerHTML = `<div class="dlg-head"><button class="icon-btn" id="dl-x">${ic('x')}</button><b>${esc(d.title)}</b>
       ${meWho && speakOK() ? `<button class="icon-btn" id="dl-role" title="Actuar">${ic('drama')}</button>` : ''}</div>
-    <div class="cast">${speakers.map(s => `<div class="cast-p" data-who="${esc(s)}">${person(s, (d.speakers || {})[s])}<span>${esc(s)}</span></div>`).join('')}</div>
+    <div class="stage"><div class="stage-art">${(d.art || []).map(a => art(a)).join('')}</div><div class="cast">${speakers.map(s => `<div class="cast-p" data-who="${esc(s)}">${person(s, (d.speakers || {})[s])}<span>${esc(s)}</span></div>`).join('')}</div></div>
     <div class="scene">${ic('clapperboard')}<span>${esc(d.scene || '')}${D.roleplay ? '<br><b>Modo actuación:</b> vos decís las frases de Alejandra.' : ''}</span></div>
     <div class="chat" id="chat"></div>
     <div class="hint" id="dl-hint">Tocá un mensaje para ver la traducción</div>
@@ -1125,6 +1149,7 @@ function renderPractice() {
   const ls = doneLessons(), P = pool(ls);
   const nm = S.mistakes.filter(m => findRef(m.ref)).length;
   const items = [
+    ['srs', 'brain', '#7B5CFF', 'Repaso del día', srsDue().length ? 'Las palabras que te toca repasar hoy' : 'Hoy no tenés nada pendiente', srsDue().length, srsDue().length > 0],
     ['mistakes', 'rotate-ccw', '#E5484D', 'Repasar mis errores', 'Lo que te costó, otra vez', nm, nm > 0],
     ['mix', 'shuffle', '#2E5BFF', 'Práctica rápida', '12 ejercicios mezclados', null, P.sent.length >= 6],
     ['listen', 'headphones', '#12A48B', 'Oído francés', 'Escuchá y armá las frases', null, P.sent.length >= 4],
@@ -1145,7 +1170,7 @@ function renderPractice() {
   $$('[data-p]', el).forEach(b => b.onclick = () => {
     const k = b.dataset.p;
     if (k === 'verbs') return chooseTense();
-    const list = k === 'mistakes' ? buildMistakes() : k === 'numbers' ? buildNums() : practiceSet(k);
+    const list = k === 'mistakes' ? buildMistakes() : k === 'numbers' ? buildNums() : k === 'srs' ? buildSrs() : practiceSet(k);
     startQuiz(list, { title: b.querySelector('b').textContent, xp: 10, practice: k });
   });
   $$('[data-d]', el).forEach(b => b.onclick = () => openDialog(NODE[b.dataset.d].dialog));
@@ -1171,7 +1196,7 @@ function renderWords() {
       const vs = l.vocab.filter(v => !q || deacc(norm(v.fr + ' ' + v.es)).includes(q));
       if (!vs.length) return;
       count += vs.length;
-      html += `<div class="wgroup"><h4>${esc(u.title)} · ${esc(l.title)}</h4>${vs.map(v => `<button class="word" data-au="${v.au}">${v.ic ? `<span class="vic">${ic(v.ic)}</span>` : ''}<div><div class="w-fr">${esc(v.fr)}${v.g ? `<span class="gtag ${v.g}">${v.g === 'm' ? 'masc.' : 'fem.'}</span>` : ''}</div><div class="w-es">${esc(v.es)}</div></div>${ic('volume-2')}</button>`).join('')}</div>`;
+      html += `<div class="wgroup"><h4>${esc(u.title)} · ${esc(l.title)}</h4>${vs.map(v => `<button class="word" data-au="${v.au}">${v.art ? `<span class="vart">${art(v.art)}</span>` : ''}<div><div class="w-fr">${esc(v.fr)}${v.g ? `<span class="gtag ${v.g}">${v.g === 'm' ? 'masc.' : 'fem.'}</span>` : ''}</div><div class="w-es">${esc(v.es)}</div></div>${ic('volume-2')}</button>`).join('')}</div>`;
     }));
     $('#w-list', el).innerHTML = count ? html : `<div class="empty"><span class="piaf" data-piaf="${q ? 'sad' : 'happy'}"></span><p>${q ? 'No encontré esa palabra.' : 'Las palabras aparecen acá cuando terminás una lección.'}</p></div>`;
     hydratePiaf($('#w-list', el));
@@ -1208,15 +1233,69 @@ function renderMe() {
       ${sw('hearts', 'Vidas', 'Perdés una vida con cada error en las lecciones')}
       ${sw('haptic', 'Vibración', 'Un toque al acertar o fallar')}
       ${sw('unlockAll', 'Desbloquear todo el camino', 'Para saltar a cualquier lección')}
+      <div class="set"><div><b>Apariencia</b><span>Claro, oscuro o como el teléfono</span></div><div class="chips">${[['auto', 'Auto'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, t]) => `<button class="chip ${(S.set.theme || 'auto') === k ? 'on' : ''}" data-theme-set="${k}">${t}</button>`).join('')}</div></div>
     </div>
     <button class="btn ghost wide" id="m-reset" style="color:var(--red)">Borrar mi progreso</button>
     <p class="foot-note">Petit à petit, l'oiseau fait son nid.<br>Hecho con cariño para ${NAME}.</p>`;
   hydratePiaf(el);
   $$('[data-set]', el).forEach(b => b.onclick = () => { S.set[b.dataset.set] = !S.set[b.dataset.set]; save(); b.classList.toggle('on'); sfx.tap(); updateTop(); });
   $$('[data-goal]', el).forEach(b => b.onclick = () => { S.goal = +b.dataset.goal; save(); renderMe(); updateTop(); });
+  $$('[data-theme-set]', el).forEach(b => b.onclick = () => { S.set.theme = b.dataset.themeSet; save(); applyTheme(); renderMe(); });
   $('#m-save').onclick = openBackup; $('#m-load').onclick = openRestore; $('#m-cheat').onclick = openCheats;
   $('#m-reset').onclick = async () => { if (await ask('¿Borrar todo tu progreso? No se puede deshacer.', 'Borrar')) { const keep = S.set; S = normalize({}); S.onboarded = true; S.set = keep; S.since = today(); save(); goHome(); setTab('learn'); } };
 }
+
+
+/* ============ lot 3 : tracé du chemin, compteur animé, révision espacée, thème ============ */
+function drawTrails(root) {
+  $$('.path', root).forEach(p => {
+    const W = p.clientWidth, ns = $$('.node', p);
+    if (!W || ns.length < 2) return;
+    const pts = ns.map(n => { const m = /translateX\((-?\d+)px\)/.exec(n.style.transform); return [W / 2 + (m ? +m[1] : 0), n.offsetTop + 30]; });
+    let d = `M${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], my = (y0 + y1) / 2; d += ` C${x0} ${my} ${x1} ${my} ${x1} ${y1}`; }
+    const H = p.scrollHeight;
+    p.insertAdjacentHTML('afterbegin', `<svg class="trail" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}"/></svg>`);
+  });
+}
+function countUp(el, to, ms = 700) {
+  if (!el) return;
+  const t0 = performance.now();
+  const tick = now => { const k = Math.min(1, (now - t0) / ms); el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(tick); };
+  el.textContent = 0; requestAnimationFrame(tick);
+  setTimeout(() => { el.textContent = to; }, ms + 120); // filet si l'écran est en arrière-plan
+}
+
+/* Révision espacée : chaque mot revient au bon moment (1, 2, 4, 7, 15, 30 jours) */
+const SRS_INT = [0, 1, 2, 4, 7, 15, 30];
+function srsUpdate(ref, ok) {
+  if (!ref || ref[0] !== 'v') return;
+  S.srs = S.srs || {};
+  const e = S.srs[ref[2]] || { b: 0 };
+  e.b = ok ? Math.min(6, e.b + 1) : 1; e.l = ref[1]; e.due = dateShift(ok ? SRS_INT[e.b] : 0);
+  S.srs[ref[2]] = e;
+}
+function srsDue() {
+  const t = today();
+  return Object.entries(S.srs || {}).filter(([k, e]) => e.due <= t && LESSON[e.l] && LESSON[e.l].vocab.some(v => v.fr === k)).sort((a, b) => (a[1].due < b[1].due ? -1 : 1));
+}
+function buildSrs() {
+  const all = pool(doneLessons().length ? doneLessons() : [UNITS[0].lessons[0]]).vocab, withArt = all.filter(x => x.art);
+  return srsDue().slice(0, 14).map(([k, e]) => {
+    const v = findRef(['v', e.l, k]); if (!v) return null;
+    const own = pool([LESSON[e.l]]).vocab, vs = own.length >= 4 ? own : all, r = Math.random();
+    return (v.art && r < .3 && exPickImg(v, withArt)) || (r < .55 ? exHear(v, vs) : r < .8 ? exPick(v, vs) : exPickFr(v, vs));
+  }).filter(Boolean);
+}
+
+/* Thème clair / sombre / automatique */
+function applyTheme() {
+  const pref = S.set.theme || 'auto';
+  const dark = pref === 'dark' || (pref === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#10141C' : '#FFF8EE';
+}
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch { }
 
 const UNIT_ART = ['audio-lines', 'hand', 'coffee', 'bike', 'camera', 'messages-square', 'stethoscope'];
 
@@ -1365,19 +1444,19 @@ function typeUI(body, ex, head, top, placeholder, numeric) {
   });
 }
 RENDER_EX.hear = (body, ex, head) => {
-  body.innerHTML = head + `<h2 class="qtitle">¿Qué escuchás?</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>` +
+  body.innerHTML = head + `<h2 class="qtitle">¿Qué escuchás?</h2><div class="big-say"><span class="piaf listener" data-piaf="happy" data-prop="phones"></span><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>` +
     `<div class="options">${ex.opts.map((o, i) => `<button class="opt" data-i="${i}"><span class="k">${i + 1}</span>${esc(o)}</button>`).join('')}</div>`;
   wirePlay(body);
   $$('.opt', body).forEach(b => b.onclick = () => { if (Q.locked) return; sfx.tap(); $$('.opt', body).forEach(x => x.classList.remove('sel')); b.classList.add('sel'); setAnswer(ex.opts[b.dataset.i]); });
   setTimeout(() => play(ex.item.au), 300);
 };
-RENDER_EX.type = (body, ex, head) => typeUI(body, ex, head, `<h2 class="qtitle">Escribí en francés</h2>` + promptBubble(ex.item.es), 'Escribí acá…');
+RENDER_EX.type = (body, ex, head) => typeUI(body, ex, head, `<h2 class="qtitle">Escribí en francés</h2>` + promptBubble(ex.item.es, null, '', 'pencil'), 'Escribí acá…');
 RENDER_EX.dictation = (body, ex, head) => {
-  typeUI(body, ex, head, `<h2 class="qtitle">Escribí lo que escuchás</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`, 'Escribí en francés…');
+  typeUI(body, ex, head, `<h2 class="qtitle">Escribí lo que escuchás</h2><div class="big-say"><span class="piaf listener" data-piaf="happy" data-prop="phones"></span><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`, 'Escribí en francés…');
   setTimeout(() => play(ex.item.au), 300);
 };
 RENDER_EX.num = (body, ex, head) => {
-  typeUI(body, ex, head, `<h2 class="qtitle">¿Qué número escuchás?</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`, '0 – 100', true);
+  typeUI(body, ex, head, `<h2 class="qtitle">¿Qué número escuchás?</h2><div class="big-say"><span class="piaf listener" data-piaf="happy" data-prop="phones"></span><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`, '0 – 100', true);
   setTimeout(() => play(ex.item.au), 300);
 };
 Object.assign(TYPE_LABEL, { hear: ['ear', 'Escuchá'], type: ['keyboard', 'Escribí'], dictation: ['pen-line', 'Dictado'], num: ['hash', 'Números'] });
@@ -1427,10 +1506,12 @@ function openStory(st) {
   stopAudio(); D = null;
   const el = $('#dlg');
   el.innerHTML = `<div class="dlg-head"><button class="icon-btn" id="dl-x">${ic('x')}</button><b>${esc(st.title)}</b></div>
+    <div class="stage"><div class="stage-art">${(st.art || []).map(a => art(a)).join('')}</div><div class="cast"><span class="piaf reader" data-piaf="happy" data-prop="book"></span></div></div>
     <div class="scene">${ic('book-open-text')}<span><b>${esc(st.kind || 'Lectura')}</b> · ${esc(st.intro || '')}</span></div>
     <div class="chat story" id="chat">${st.paras.map((p, i) => `<button class="para" data-i="${i}"><span class="t">${esc(p.fr)}</span><span class="es">${esc(p.es)}</span></button>`).join('')}</div>
     <div class="hint">Tocá una frase para escucharla y ver la traducción</div>
     <div class="dlg-foot"><button class="btn" id="st-all">${ic('play')} Escuchar</button><button class="btn purple" id="st-q">Preguntas</button></div>`;
+  hydratePiaf(el);
   const paras = $$('.para', el);
   const mark = i => paras.forEach((p, k) => p.classList.toggle('playing', k === i));
   paras.forEach((p, i) => p.onclick = async () => { p.classList.toggle('show-es'); mark(i); await play(st.paras[i].au); p.classList.remove('playing'); });
@@ -1496,6 +1577,7 @@ if (!NATIVE && 'serviceWorker' in navigator && location.protocol === 'https:') {
 
 /* ============ démarrage ============ */
 if (!S.since) { S.since = today(); save(); }
+applyTheme();
 const streakMsg = settleStreak();
 quests();
 if (!S.onboarded) { if (S.xp === 0 && !Object.keys(S.nodes).length) setTimeout(welcome, 400); else { S.onboarded = true; save(); } }

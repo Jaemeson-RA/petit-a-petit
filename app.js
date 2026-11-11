@@ -66,11 +66,33 @@ const today = () => { const d = new Date(); return d.getFullYear() + '-' + Strin
 const dayDiff = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
 const DEF = { xp: 0, streak: 0, best: 0, last: null, days: {}, goal: 30, nodes: {}, mistakes: [], seen: {},
   hearts: 5, heartAt: 0, coins: 0, freeze: 0, boostUntil: 0, quests: null, chests: {}, badges: {},
-  stats: { lessons: 0, perfect: 0, dialogs: 0, practice: 0, bestCombo: 0, bought: 0 },
+  stats: { lessons: 0, perfect: 0, dialogs: 0, stories: 0, practice: 0, bestCombo: 0, bought: 0 }, onboarded: false,
   set: { speak: true, sound: true, autoplay: true, unlockAll: false, haptic: true, hearts: true }, speakOff: 0 };
 let S;
-try { S = Object.assign(structuredClone(DEF), JSON.parse(localStorage.getItem(KEY) || '{}')); S.set = Object.assign({}, DEF.set, S.set); S.stats = Object.assign({}, DEF.stats, S.stats); S.chests = S.chests || {}; S.badges = S.badges || {}; }
-catch { S = structuredClone(DEF); }
+/* La progression ne doit JAMAIS se perdre entre deux versions : on complète l'ancien état avec les nouveaux
+   champs (jamais l'inverse), on garde la même clé de stockage, et une copie de secours est écrite au démarrage. */
+function normalize(o) {
+  const st = Object.assign(structuredClone(DEF), o && typeof o === 'object' ? o : {});
+  st.set = Object.assign({}, DEF.set, st.set);
+  st.stats = Object.assign({}, DEF.stats, st.stats);
+  for (const k of ['chests', 'badges', 'nodes', 'days', 'seen']) if (!st[k] || typeof st[k] !== 'object') st[k] = {};
+  if (!Array.isArray(st.mistakes)) st.mistakes = [];
+  for (const k in st.nodes) { const n = st.nodes[k]; if (n && n.times && n.lvl == null) n.lvl = 1; }
+  st.v = 2;
+  return st;
+}
+function loadState() {
+  for (const k of [KEY, KEY + '.bak']) {
+    try {
+      const raw = localStorage.getItem(k);
+      if (raw) { const o = JSON.parse(raw); if (o && typeof o === 'object') return { s: normalize(o), raw, from: k }; }
+    } catch { }
+  }
+  return { s: normalize({}), raw: null, from: null };
+}
+const loaded = loadState();
+S = loaded.s;
+try { if (loaded.raw && loaded.from === KEY && (loaded.s.xp > 0 || Object.keys(loaded.s.nodes).length)) localStorage.setItem(KEY + '.bak', loaded.raw); } catch { }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { } };
 function streakAlive() { return S.last && dayDiff(S.last, today()) <= 1; }
 function addXP(n) {
@@ -353,17 +375,22 @@ UNITS.forEach((u, ui) => {
       d.unit = u;
       u.nodes.push({ id: d.id, type: 'dialog', unit: u, dialog: d, title: d.title, icon: 'messages-square' });
     });
+    // lectures : étapes facultatives (elles ne bloquent jamais la suite, même ajoutées dans une mise à jour)
+    (C.stories || []).filter(st => st.unit === u.id && (st.afterLesson || u.lessons.length) === li + 1).forEach(st => {
+      u.nodes.push({ id: st.id, type: 'story', unit: u, story: st, title: st.title, icon: 'book-open-text', optional: true });
+    });
   });
   if (u.lessons.length > 1) u.nodes.push({ id: 'rev-' + u.id, type: 'review', unit: u, title: 'Repaso de la unidad', icon: 'trophy' });
   u.nodes.forEach(n => { NODE[n.id] = n; ORDER.push(n); });
 });
 const isDone = id => !!(S.nodes[id] && S.nodes[id].times);
 function isOpen(id) {
-  if (S.set.unlockAll) return true;
-  const i = ORDER.findIndex(n => n.id === id);
-  return i <= 0 || isDone(ORDER[i - 1].id) || isDone(id);
+  if (S.set.unlockAll || isDone(id)) return true;
+  let i = ORDER.findIndex(n => n.id === id) - 1;
+  while (i >= 0 && ORDER[i].optional) i--;
+  return i < 0 || isDone(ORDER[i].id);
 }
-const currentNode = () => ORDER.find(n => !isDone(n.id)) || null;
+const currentNode = () => ORDER.find(n => !isDone(n.id) && !n.optional) || null;
 const doneLessons = () => Object.values(LESSON).filter(l => isDone(l.id));
 const pool = ls => ({
   vocab: ls.flatMap(l => l.vocab.map(v => ({ ...v, lesson: l.id }))),
@@ -454,6 +481,10 @@ function renderLearn() {
   let html = `<div class="hello"><span class="piaf" data-piaf="happy"></span>
     <div class="bubble"><small>${saludo}, ${NAME} · la frase del día</small>
     ${pdj ? `<div class="pdj"><button class="say" data-au="${pdj.au}">${ic('volume-2')}</button><div><b>${esc(pdj.fr)}</b><div class="pdj-es">${esc(pdj.es)}</div></div></div>` : ''}</div></div>`;
+  const li = levelInfo(), td = S.days[today()] || 0;
+  html += `<div class="hero"><span class="lv">${li.L}</span><div class="hero-main"><small>Nivel ${li.L} · ${li.name}</small>
+    <div class="q-bar"><i style="width:${li.pct}%"></i><span>${S.xp} XP · faltan ${li.left}</span></div>
+    <div class="hero-goal">${ic('target')} Hoy: ${td} / ${S.goal} XP${boostOn() ? ` · ${ic('rocket')} XP ×2` : ''}</div></div></div>`;
   if (cur) {
     const u = cur.unit;
     html += `<button class="continue-card" data-node="${cur.id}" style="--u:${u.color[0]};--u-d:${u.color[1]}">
@@ -461,12 +492,12 @@ function renderLearn() {
   }
   UNITS.forEach((u, ui) => {
     html += `<section class="unit" style="--u:${u.color[0]};--u-d:${u.color[1]}">
-      <div class="unit-head"><div><small>Unidad ${ui}</small><h2>${esc(u.title)}</h2><p>${esc(u.subtitle || '')}</p></div>
+      <div class="unit-head"><span class="u-art">${ic(UNIT_ART[ui % UNIT_ART.length])}</span><div><small>Unidad ${ui}</small><h2>${esc(u.title)}</h2><p>${esc(u.subtitle || '')}</p></div>
       <button class="u-guide" data-guide="${u.id}" aria-label="Guía de la unidad">${ic('notebook-text')}</button></div><div class="path">`;
     u.nodes.forEach((n, i) => {
       const done = isDone(n.id), open = isOpen(n.id), current = cur && cur.id === n.id;
       const x = Math.round(Math.sin(i * 0.9) * 78);
-      const stars = n.type !== 'review' && n.type !== 'dialog' ? `<span class="stars">${[1, 2, 3].map(k => ic('star', (S.nodes[n.id]?.stars || 0) >= k ? 'on' : '')).join('')}</span>` : '';
+      const stars = n.type === 'lesson' ? `<span class="stars">${[1, 2, 3].map(k => ic('crown', lvlOf(n.id) >= k ? 'on' : '')).join('')}</span>` : '';
       const side = x > 0 ? 'l' : 'r';
       html += `<div class="node ${n.type} ${done ? 'done' : ''} ${open ? '' : 'locked'} ${current ? 'current' : ''}" style="transform:translateX(${x}px)" data-node="${n.id}" role="button">
         ${current ? `<span class="start-tag">${isDone(ORDER[0].id) ? 'Seguir' : 'Empezar'}</span>` : ''}
@@ -479,7 +510,7 @@ function renderLearn() {
     });
     html += `</div></section>`;
   });
-  html += `<div class="path-end"><span class="piaf" data-piaf="wow"></span><div>Al final del camino: ¡nivel A2!</div></div>`;
+  html += `<div class="path-end"><div class="end-art"><svg class="eiffel" viewBox="0 0 60 100"><path d="M30 2v10M27 12h6l3 28H24zM21 40h18l6 30H15zM13 70h34l8 28H43c0-8-5-13-13-13S17 90 17 98H5z" fill="currentColor"/><path d="M22 40h16M14 70h32" stroke="var(--bg)" stroke-width="3"/></svg><span class="piaf" data-piaf="wow"></span></div><div>Al final del camino: ¡nivel A2!</div></div>`;
   el.innerHTML = html;
   hydratePiaf(el);
   $$('[data-node]', el).forEach(b => b.onclick = () => openNode(b.dataset.node));
@@ -500,12 +531,14 @@ function openNode(id) {
   sfx.tap();
   if (n.type === 'lesson') openIntro(n.lesson);
   else if (n.type === 'dialog') openDialog(n.dialog);
+  else if (n.type === 'story') openStory(n.story);
   else startQuiz(buildReview(n.unit), { node: n.id, title: n.title, xp: 20, hearts: true });
 }
 
 /* ============ présentation de la leçon ============ */
 function openIntro(l, guideMode = false) {
   const u = l.unit, el = $('#intro');
+  const lv = lvlOf(l.id); let sel = Math.min(3, lv + 1);
   el.style.setProperty('--u', u.color[0]); el.style.setProperty('--u-d', u.color[1]);
   el.innerHTML = `<div class="intro-head"><button class="icon-btn" id="i-back">${ic('arrow-left')}</button>
       <small>Unidad ${UNITS.indexOf(u)} · Lección ${l.n}</small><h1>${esc(l.title)}</h1></div>
@@ -518,9 +551,11 @@ function openIntro(l, guideMode = false) {
       <div class="sec-t">Frases modelo</div>
       ${l.sentences.slice(0, 4).map((s, i) => `<button class="word" data-s="${i}"><div><div class="w-fr">${esc(s.fr)}</div><div class="w-es">${esc(s.es)}</div></div>${ic('volume-2')}</button>`).join('')}
     </div>
-    <div class="intro-foot"><button class="btn primary wide" id="i-start">${isDone(l.id) ? 'Practicar de nuevo' : 'Empezar la lección'}</button></div>`;
+    <div class="intro-foot"><div class="lvls">${[1, 2, 3].map(k => `<button class="lvl ${k <= lv ? 'done' : ''} ${k === sel ? 'on' : ''}" data-lvl="${k}" ${k > lv + 1 ? 'disabled' : ''}>${ic(k > lv + 1 ? 'lock' : 'crown')}<b>Nivel ${k}</b><small>${['Descubrir', 'Afianzar', 'Dominar'][k - 1]}</small></button>`).join('')}</div>
+    <button class="btn primary wide" id="i-start">Empezar el nivel ${sel}</button></div>`;
   $('#i-back').onclick = goHome;
-  $('#i-start').onclick = () => startQuiz(buildLesson(l), { node: l.id, title: l.title, xp: 15, hearts: true });
+  $$('.lvl', el).forEach(b => b.onclick = () => { sel = +b.dataset.lvl; $$('.lvl', el).forEach(x => x.classList.toggle('on', x === b)); $('#i-start').textContent = 'Empezar el nivel ' + sel; sfx.tap(); });
+  $('#i-start').onclick = () => startQuiz(buildLesson(l, sel), { node: l.id, title: l.title + ' · nivel ' + sel, xp: 10 + 5 * sel, hearts: true, level: sel });
   if (l.video) $('#i-video').onclick = () => openVideo(l.video, l.title);
   $$('[data-v]', el).forEach(b => b.onclick = () => play(l.vocab[b.dataset.v].au));
   $$('[data-s]', el).forEach(b => b.onclick = () => play(l.sentences[b.dataset.s].au));
@@ -597,7 +632,8 @@ function exFill(g) {
 function exMatch(vs) { const p = sample(vs, Math.min(5, vs.length)); return { t: 'match', pairs: p, ref: null }; }
 function exSpeak(s) { return { t: 'speak', item: s, ans: s.fr, ref: ['s', s.lesson, s.fr] }; }
 
-function buildLesson(l) {
+function buildLesson(l, level = 1) {
+  if (level > 1) return buildLessonHard(l, level);
   const P = pool([l]);
   const V = P.vocab, SS = P.sent, G = P.gram;
   const ex = [];
@@ -735,7 +771,7 @@ const RENDER_EX = {
   },
   fill(body, ex, head) {
     const [a, b] = ex.item.q.split('___');
-    body.innerHTML = head + `<h2 class="qtitle">Elegí la palabra que falta</h2>
+    body.innerHTML = head + `<h2 class="qtitle">Elegí la palabra que falta</h2>${ex.hint ? `<div class="vhint">${esc(ex.hint)}</div>` : ''}
       <div class="fill-sent">${esc(a)}<span class="gap" id="gap">&nbsp;</span>${esc(b || '')}</div>
       <div class="options">${ex.opts.map(o => `<button class="opt" data-i="${o.i}"><span class="k">${ic('pencil')}</span>${esc(o.o)}</button>`).join('')}</div>`;
     $$('.opt', body).forEach(btn => btn.onclick = () => { if (Q.locked) return; sfx.tap(); $$('.opt', body).forEach(x => x.classList.remove('sel')); btn.classList.add('sel'); const v = ex.item.opts[btn.dataset.i]; $('#gap').textContent = v; setAnswer(v); });
@@ -824,8 +860,9 @@ function buildUI(body, ex, head, top) {
 $('#q-check').onclick = () => {
   if (Q.locked || Q.answer == null) return;
   const ex = Q.ex;
-  let ok;
-  if (ex.t === 'build' || ex.t === 'listen' || ex.t === 'build-es') ok = norm(Q.answer) === norm(ex.ans);
+  let ok, note = '';
+  if (ex.t === 'type' || ex.t === 'dictation') { const r = checkTyped(Q.answer, ex.ans); ok = r.ok; note = r.note; }
+  else if (ex.t === 'num') ok = String(Q.answer).replace(/\D/g, '') === ex.ans;
   else ok = norm(Q.answer) === norm(ex.ans);
   if (ex.t === 'pickimg') {
     $$('.imgcard', $('#q-body')).forEach(b => {
@@ -833,18 +870,19 @@ $('#q-check').onclick = () => {
       else if (b.classList.contains('sel')) b.classList.add('wrong');
     });
   }
-  if (ex.t === 'pick' || ex.t === 'pickfr' || ex.t === 'fill') {
+  if (ex.t === 'pick' || ex.t === 'hear' || ex.t === 'pickfr' || ex.t === 'fill') {
     $$('.opt', $('#q-body')).forEach(b => {
-      const val = ex.t === 'pick' ? ex.opts[b.dataset.i] : ex.t === 'pickfr' ? ex.opts[b.dataset.i].fr : ex.item.opts[b.dataset.i];
+      const val = ex.t === 'pick' || ex.t === 'hear' ? ex.opts[b.dataset.i] : ex.t === 'pickfr' ? ex.opts[b.dataset.i].fr : ex.item.opts[b.dataset.i];
       if (norm(val) === norm(ex.ans)) b.classList.add('right');
       else if (b.classList.contains('sel')) b.classList.add('wrong');
     });
   }
-  judge(ok);
+  judge(ok, note);
 };
 
 function judge(ok, extra = '') {
   Q.locked = true;
+  { const ti = $('#tin'); if (ti) { ti.disabled = true; ti.blur(); } }
   const ex = Q.ex, fb = $('#q-fb');
   fb.classList.toggle('bad', !ok);
   $('.fb-ico', fb).innerHTML = ok ? ic('check') : ic('x');
@@ -859,8 +897,11 @@ function judge(ok, extra = '') {
   if (ok) {
     $('.fb-title', fb).textContent = rand(PRAISE);
     if (ex.t === 'build-es') text = esc(ex.item.fr);
-    else if (ex.t === 'build' || ex.t === 'listen') text = esc(ex.item.es);
+    else if (ex.t === 'build' || ex.t === 'listen' || ex.t === 'dictation' || ex.t === 'num') text = esc(ex.item.es);
+    else if (ex.t === 'type' && extra) text = esc(ex.ans);
     else if (ex.t === 'fill') text = esc(ex.full) + `<span class="why">${esc(ex.item.es)}</span>`;
+    if (extra && ex.t === 'dictation') text = esc(ex.ans);
+    if (extra) text += `<span class="why">${esc(extra)}</span>`;
     Q.right++; Q.combo++; Q.bestCombo = Math.max(Q.bestCombo, Q.combo); Q.done++;
     bump('right'); if (ex.t === 'listen') bump('listen'); bump('combo', Q.combo, true);
     sfx.ok(); haptic('ok');
@@ -872,7 +913,7 @@ function judge(ok, extra = '') {
   } else {
     $('.fb-title', fb).textContent = ex.t === 'speak' ? 'Casi…' : 'Respuesta correcta:';
     text = esc(correct);
-    if (ex.t === 'build' || ex.t === 'listen') text += `<span class="why">${esc(ex.item.es)}</span>`;
+    if (ex.t === 'build' || ex.t === 'listen' || ex.t === 'dictation' || ex.t === 'num') text += `<span class="why">${esc(ex.item.es)}</span>`;
     if (ex.t === 'fill' && ex.item.why) text += `<span class="why">${esc(ex.item.why)}</span>`;
     if (extra) text += `<span class="why">${esc(extra)}</span>`;
     Q.wrong++; Q.combo = 0;
@@ -919,9 +960,12 @@ function finishQuiz() {
   const stars = acc >= 95 ? 3 : acc >= 75 ? 2 : 1;
   let xp = m.xp + (acc === 100 ? 5 : 0) + Math.floor(Q.bestCombo / 5) * 2;
   const type = m.node ? (NODE[m.node] ? NODE[m.node].type : 'lesson') : 'practice';
+  let newLevel = 0;
   if (m.node) {
     const n = S.nodes[m.node] || { times: 0, stars: 0 };
-    n.times++; n.stars = Math.max(n.stars, stars);
+    const before = n.lvl || 0;
+    n.times++; n.stars = Math.max(n.stars, stars); n.lvl = Math.max(before, m.level || 1);
+    if (type === 'lesson' && n.lvl > before) newLevel = n.lvl;
     S.nodes[m.node] = n;
   }
   if (m.practice === 'mistakes') S.mistakes = S.mistakes.filter(x => !Q.list.some(e => e.ref && e.ref.join('|') === x.ref.join('|')));
@@ -930,18 +974,21 @@ function finishQuiz() {
   if (type === 'lesson') { S.stats.lessons++; bump('lessons'); coins = 5; if (acc === 100) { S.stats.perfect++; bump('perfect'); coins += 3; } }
   else if (type === 'review') coins = 10;
   else if (type === 'dialog') { S.stats.dialogs++; coins = 5; }
+  else if (type === 'story') { S.stats.stories = (S.stats.stories || 0) + 1; coins = 5; }
   else { S.stats.practice++; bump('practice'); if (S.set.hearts && heartsNow() < MAXH) { gainHeart(1); heart = true; } }
   const wasStreak = S.last === today();
   const goalBefore = (S.days[today()] || 0) >= S.goal;
   const boost = boostOn();
+  const xpLv = levelOf(S.xp);
   xp = addXP(xp);
+  const levelUp = levelOf(S.xp) > xpLv ? levelOf(S.xp) : 0;
   const goalHit = !goalBefore && (S.days[today()] || 0) >= S.goal;
   if (goalHit) coins += 10;
   addCoins(coins);
   const badges = checkBadges();
   const questsDone = bump.fresh || 0; bump.fresh = 0;
-  results({ title: type === 'dialog' ? '¡Diálogo terminado!' : acc === 100 ? '¡Lección perfecta!' : acc >= 75 ? '¡Lección completada!' : '¡Terminaste!', sub: m.title, xp, acc, time: Date.now() - Q.t0,
-    stars: type === 'lesson' ? stars : 0, newStreak: !wasStreak, coins, badges, questsDone, goalHit, boost, heart });
+  results({ title: type === 'dialog' ? '¡Diálogo terminado!' : type === 'story' ? '¡Lectura terminada!' : acc === 100 ? '¡Lección perfecta!' : acc >= 75 ? '¡Lección completada!' : '¡Terminaste!', sub: m.title, xp, acc, time: Date.now() - Q.t0,
+    stars: type === 'lesson' ? stars : 0, newStreak: !wasStreak, newLevel, levelUp, coins, badges, questsDone, goalHit, boost, heart });
   Q = null;
 }
 
@@ -955,6 +1002,8 @@ function results(r) {
     <div class="r2"><small>${r.acc != null ? 'Precisión' : 'Diálogo'}</small><b>${ic('target')} ${r.acc != null ? r.acc + '%' : 'OK'}</b></div>
     <div class="r3"><small>Tiempo</small><b>${ic('timer')} ${mins}:${String(secs).padStart(2, '0')}</b></div></div>
     <div class="perks">
+      ${r.levelUp ? `<span class="perk boost">${ic('arrow-big-up-dash')} ¡Nivel ${r.levelUp}!</span>` : ''}
+      ${r.newLevel > 1 ? `<span class="perk quest">${ic('crown')} Corona ${r.newLevel} de 3</span>` : ''}
       ${r.coins ? `<span class="perk coin">+${r.coins} ${ic('croissant')}</span>` : ''}
       ${r.boost ? `<span class="perk boost">${ic('rocket')} XP ×2</span>` : ''}
       ${r.heart ? `<span class="perk heart">+1 ${ic('heart')}</span>` : ''}
@@ -964,7 +1013,7 @@ function results(r) {
     ${r.newStreak ? `<div class="streak-card"><b>${ic('flame')} ¡Racha de ${S.streak} día${S.streak > 1 ? 's' : ''}!</b><div class="sweek">${[...Array(7)].map((_, i) => { const k = dateShift(i - 6); return `<span class="${S.days[k] ? 'on' : ''}">${'DLMMJVS'[new Date(k + 'T12:00').getDay()]}</span>`; }).join('')}</div></div>` : ''}
     </div><div class="done-foot"><button class="btn primary wide" id="d-ok">Continuar</button></div>`;
   hydratePiaf(el);
-  $('#d-ok').onclick = () => { goHome(); if (r.badges && r.badges.length) setTimeout(() => badgePop(r.badges), 350); else if (r.questsDone) toast('¡Tenés un desafío para cobrar!'); };
+  $('#d-ok').onclick = () => { goHome(); if (r.levelUp) setTimeout(() => pop(`<span class="piaf party flap" data-piaf="joy"></span><h2>¡Nivel ${r.levelUp}!</h2><p class="big-coins">${esc(levelName(r.levelUp))}</p><p>Seguí así, ${NAME}.</p><button class="btn primary wide" data-close>Merci !</button>`), 350); else if (r.badges && r.badges.length) setTimeout(() => badgePop(r.badges), 350); else if (r.questsDone) toast('¡Tenés un desafío para cobrar!'); };
   show('done');
   sfx.win(); haptic('ok');
   const conf = $('#conf'), cols = ['#2E5BFF', '#FF9F1C', '#21A35B', '#E5484D', '#FFC93C', '#7B5CFF'];
@@ -1081,19 +1130,25 @@ function renderPractice() {
     ['speak', 'mic', '#FF8A1C', 'Pronunciación', speakOK() || !S.set.speak ? 'Decí frases en voz alta' : 'Necesita el reconocimiento de voz del teléfono', null, P.sent.length >= 4 && speakOK()],
     ['words', 'blocks', '#7B5CFF', 'Vocabulario', 'Palabras de tus lecciones', null, P.vocab.length >= 6],
     ['grammar', 'puzzle', '#E8508A', 'Gramática', 'Completá los huecos', null, P.gram.length >= 4],
+    ['verbs', 'repeat', '#0B7A67', 'Verbos', 'Conjugá los 24 verbos clave', null, (C.verbs || []).length > 0],
+    ['numbers', 'hash', '#D06A00', 'Números', 'Escuchá y escribí del 0 al 100', null, !!C.nums],
   ];
   el.innerHTML = `<h1 class="page">Práctica</h1>` + (ls.length ? '' : `<div class="card"><p>Terminá tu primera lección para desbloquear la práctica.</p></div>`) +
     items.map(([k, icn, col, t, s, n, on]) => `<button class="card prac" data-p="${k}" ${on ? '' : 'disabled'}><span class="p-ico" style="background:${col}">${ic(icn)}</span><span><b>${t}</b><span>${s}</span></span>${n ? `<span class="count">${n}</span>` : ''}</button>`).join('') +
     `<h1 class="page" style="margin-top:22px;font-size:22px">Diálogos</h1>` +
-    UNITS.flatMap(u => (u.dialogues || []).map(d => `<button class="card prac" data-d="${d.id}" ${isOpen(d.id) ? '' : 'disabled'}><span class="p-ico" style="background:${u.color[0]}">${ic(isDone(d.id) ? 'check' : 'messages-square')}</span><span><b>${esc(d.title)}</b><span>${esc(u.title)}</span></span></button>`)).join('');
+    UNITS.flatMap(u => (u.dialogues || []).map(d => `<button class="card prac" data-d="${d.id}" ${isOpen(d.id) ? '' : 'disabled'}><span class="p-ico" style="background:${u.color[0]}">${ic(isDone(d.id) ? 'check' : 'messages-square')}</span><span><b>${esc(d.title)}</b><span>${esc(u.title)}</span></span></button>`)).join('') +
+    `<h1 class="page" style="margin-top:22px;font-size:22px">Lecturas</h1>` +
+    (C.stories || []).map(st => `<button class="card prac" data-st="${st.id}" ${NODE[st.id] && isOpen(st.id) ? '' : 'disabled'}><span class="p-ico" style="background:${NODE[st.id] ? NODE[st.id].unit.color[0] : '#888'}">${ic(isDone(st.id) ? 'check' : 'book-open-text')}</span><span><b>${esc(st.title)}</b><span>${esc(st.kind || 'Lectura')}</span></span></button>`).join('');
   const pw = document.createElement('button'); pw.className = 'card prac'; pw.innerHTML = `<span class="p-ico" style="background:#1E2A3A">${ic('book-open')}</span><span><b>Mis palabras</b><span>Todo el vocabulario, con audio</span></span>${ic('chevron-right', 'count')}`;
   pw.onclick = () => setTab('words'); el.insertBefore(pw, el.children[1] || null);
   $$('[data-p]', el).forEach(b => b.onclick = () => {
     const k = b.dataset.p;
-    const list = k === 'mistakes' ? buildMistakes() : practiceSet(k);
+    if (k === 'verbs') return chooseTense();
+    const list = k === 'mistakes' ? buildMistakes() : k === 'numbers' ? buildNums() : practiceSet(k);
     startQuiz(list, { title: b.querySelector('b').textContent, xp: 10, practice: k });
   });
   $$('[data-d]', el).forEach(b => b.onclick = () => openDialog(NODE[b.dataset.d].dialog));
+  $$('[data-st]', el).forEach(b => b.onclick = () => openStory(NODE[b.dataset.st].story));
 }
 
 /* ============ onglet PALABRAS ============ */
@@ -1132,7 +1187,7 @@ function renderMe() {
   const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); return { k, xp: S.days[k] || 0, l: 'DLMMJVS'[d.getDay()] }; });
   const max = Math.max(S.goal, ...days.map(d => d.xp));
   const sw = (k, t, s) => `<div class="set"><div><b>${t}</b><span>${s}</span></div><button class="switch ${S.set[k] ? 'on' : ''}" data-set="${k}" aria-label="${t}"></button></div>`;
-  el.innerHTML = `<div class="me-head"><span class="piaf" data-piaf="happy"></span><div><h1>${NAME}</h1><p>Aprendiendo francés desde ${esc(S.since || today())}</p></div></div>
+  el.innerHTML = `<div class="me-head"><span class="piaf" data-piaf="happy"></span><div><h1>${NAME}</h1><p>Nivel ${levelOf(S.xp)} · ${levelName(levelOf(S.xp))} · desde ${esc(S.since || today())}</p></div></div>
     <div class="grid2">
       <div class="kpi" style="color:var(--orange)">${ic('flame')}<div><b>${streakAlive() ? S.streak : 0}</b><span>días de racha</span></div></div>
       <div class="kpi" style="color:var(--blue)">${ic('zap')}<div><b>${S.xp}</b><span>XP en total</span></div></div>
@@ -1142,6 +1197,9 @@ function renderMe() {
     <div class="card"><h3>Esta semana</h3><p>Récord de racha: ${S.best} día${S.best === 1 ? '' : 's'}</p>
       <div class="week">${days.map(d => `<div class="d ${d.k === today() ? 'today' : ''}"><div class="bar ${d.xp >= S.goal ? 'ok' : ''}" style="height:${Math.max(6, 100 * d.xp / max)}%"></div><span>${d.l}</span></div>`).join('')}</div></div>
     <div class="card"><h3>Meta diaria</h3><p style="margin-bottom:10px">XP por día</p><div class="chips">${[10, 20, 30, 50].map(g => `<button class="chip ${S.goal === g ? 'on' : ''}" data-goal="${g}">${g} XP · ${{ 10: 'Tranqui', 20: 'Normal', 30: 'En serio', 50: 'Intensa' }[g]}</button>`).join('')}</div></div>
+    <div class="card"><h3>Mi progreso</h3><p style="margin-bottom:12px">Tu avance se guarda solo en este teléfono. Hacé una copia de vez en cuando.</p>
+      <div class="cheat-row"><button class="btn primary" id="m-save">${ic('download')} Guardar</button><button class="btn" id="m-load">${ic('upload')} Restaurar</button></div>
+      <button class="btn ghost wide" id="m-cheat" style="margin-top:6px">${ic('wand-sparkles')} Trucos</button></div>
     <div class="card"><h3>Ajustes</h3>
       ${sw('sound', 'Efectos de sonido', 'Los sonidos de acierto y error')}
       ${sw('autoplay', 'Audio automático', 'Escuchar cada frase al aparecer')}
@@ -1155,7 +1213,253 @@ function renderMe() {
   hydratePiaf(el);
   $$('[data-set]', el).forEach(b => b.onclick = () => { S.set[b.dataset.set] = !S.set[b.dataset.set]; save(); b.classList.toggle('on'); sfx.tap(); updateTop(); });
   $$('[data-goal]', el).forEach(b => b.onclick = () => { S.goal = +b.dataset.goal; save(); renderMe(); updateTop(); });
-  $('#m-reset').onclick = async () => { if (await ask('¿Borrar todo tu progreso? No se puede deshacer.', 'Borrar')) { const keep = S.set; S = structuredClone(DEF); S.set = keep; S.since = today(); save(); goHome(); setTab('learn'); } };
+  $('#m-save').onclick = openBackup; $('#m-load').onclick = openRestore; $('#m-cheat').onclick = openCheats;
+  $('#m-reset').onclick = async () => { if (await ask('¿Borrar todo tu progreso? No se puede deshacer.', 'Borrar')) { const keep = S.set; S = normalize({}); S.onboarded = true; S.set = keep; S.since = today(); save(); goHome(); setTab('learn'); } };
+}
+
+const UNIT_ART = ['audio-lines', 'hand', 'coffee', 'bike', 'camera', 'messages-square', 'stethoscope'];
+
+/* ============ niveaux d'XP ============ */
+const LEVEL_NAMES = ['Débutante', 'Curieuse', 'Voyageuse', 'Bavarde', 'Gourmande', 'Parisienne', 'Aventurière', 'Experte', 'Brillante', 'Francophone'];
+const xpFor = L => 40 * L * (L - 1); // XP cumulés pour atteindre le niveau L
+function levelOf(xp) { let L = 1; while (xp >= xpFor(L + 1)) L++; return L; }
+const levelName = L => LEVEL_NAMES[Math.min(L, LEVEL_NAMES.length) - 1];
+function levelInfo() { const L = levelOf(S.xp), a = xpFor(L), b = xpFor(L + 1); return { L, name: levelName(L), pct: Math.round(100 * (S.xp - a) / (b - a)), left: b - S.xp }; }
+const lvlOf = id => (S.nodes[id] && S.nodes[id].lvl) || 0;
+
+/* ============ sauvegarde par code + trucos ============ */
+const b64e = s => btoa(unescape(encodeURIComponent(s)));
+const b64d = s => decodeURIComponent(escape(atob(s)));
+const backupCode = () => 'PAP1.' + b64e(JSON.stringify(S));
+function restoreCode(code) {
+  code = String(code).replace(/\s+/g, '');
+  const i = code.indexOf('PAP1.');
+  if (i < 0) throw new Error('code');
+  const o = JSON.parse(b64d(code.slice(i + 5)));
+  if (!o || typeof o.xp !== 'number' || typeof o.nodes !== 'object') throw new Error('code');
+  S = normalize(o); save();
+}
+function openBackup() {
+  const code = backupCode();
+  pop(`<span class="npc-art small">${animal('Shelby')}</span><h2>Guardar mi progreso</h2>
+    <p>Este es tu código. Mandátelo por WhatsApp o guardalo en tus notas: sirve para recuperar todo, también en otro teléfono.</p>
+    <textarea class="code" id="bk-code" readonly>${code}</textarea>
+    <button class="btn primary wide" id="bk-copy">${ic('copy')} Copiar el código</button>
+    ${navigator.share ? `<button class="btn wide" id="bk-share">${ic('share-2')} Compartir</button>` : ''}
+    <button class="btn ghost wide" data-close>Cerrar</button>`, box => {
+    const ta = $('#bk-code', box);
+    $('#bk-copy', box).onclick = async () => {
+      try { await navigator.clipboard.writeText(code); } catch { ta.focus(); ta.select(); try { document.execCommand('copy'); } catch { } }
+      toast('Código copiado');
+    };
+    const sh = $('#bk-share', box);
+    if (sh) sh.onclick = () => navigator.share({ title: 'Petit à petit · mi progreso', text: code }).catch(() => { });
+  });
+}
+function openRestore() {
+  pop(`<span class="npc-art small">${animal('Jacques')}</span><h2>Restaurar mi progreso</h2>
+    <p>Pegá acá el código que guardaste. Va a reemplazar el progreso de este teléfono.</p>
+    <textarea class="code" id="rs-code" placeholder="PAP1...." autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+    <button class="btn primary wide" id="rs-go">Restaurar</button>
+    <button class="btn ghost wide" data-close>Cancelar</button>`, box => {
+    $('#rs-go', box).onclick = () => {
+      try { restoreCode($('#rs-code', box).value); closePop(); toast('¡Progreso restaurado!'); goHome(); setTab('learn'); }
+      catch { toast('Ese código no es válido. Copialo entero.'); }
+    };
+  });
+}
+function openCheats() {
+  const cur = currentNode(), curI = cur ? Math.max(0, ORDER.indexOf(cur) - 1) : ORDER.length - 1;
+  pop(`<span class="piaf" data-piaf="wow"></span><h2>Trucos</h2><p>Para recuperar tu progreso o darte una ayudita. No se lo contamos a nadie.</p>
+    <div class="cheat"><label for="ch-upto">Marcar como hecho hasta</label>
+      <select id="ch-upto">${ORDER.map((n, i) => `<option value="${i}" ${i === curI ? 'selected' : ''}>U${UNITS.indexOf(n.unit)} · ${esc(n.title)}</option>`).join('')}</select>
+      <button class="btn primary" id="ch-mark">Aplicar</button></div>
+    <div class="cheat"><label for="ch-streak">Racha (días seguidos)</label>
+      <input id="ch-streak" type="number" inputmode="numeric" min="0" max="999" value="${streakAlive() ? S.streak : 0}">
+      <button class="btn primary" id="ch-st">Aplicar</button></div>
+    <div class="cheat-row"><button class="btn" id="ch-coins">+200 croissants</button><button class="btn" id="ch-xp">+500 XP</button></div>
+    <div class="cheat-row"><button class="btn" id="ch-hearts">Recargar vidas</button><button class="btn" id="ch-bak">Recuperar copia</button></div>
+    <button class="btn ghost wide" data-close>Cerrar</button>`, box => {
+    const after = msg => { save(); updateTop(); toast(msg); };
+    $('#ch-mark', box).onclick = () => {
+      const upto = +$('#ch-upto', box).value;
+      ORDER.forEach((n, i) => {
+        if (i > upto) return;
+        const o = S.nodes[n.id] || { times: 0, stars: 0 };
+        o.times = Math.max(1, o.times || 0); o.stars = Math.max(o.stars || 0, 3); o.lvl = Math.max(o.lvl || 0, 1);
+        S.nodes[n.id] = o;
+      });
+      S.stats.lessons = Math.max(S.stats.lessons, doneLessons().length);
+      checkBadges(); after('¡Listo! Progreso marcado.');
+    };
+    $('#ch-st', box).onclick = () => {
+      const v = Math.max(0, Math.min(999, parseInt($('#ch-streak', box).value, 10) || 0));
+      S.streak = v; S.best = Math.max(S.best, v); S.last = v > 0 ? today() : null;
+      checkBadges(); after(`Racha: ${v} día${v === 1 ? '' : 's'}`);
+    };
+    $('#ch-coins', box).onclick = () => { S.coins = (S.coins || 0) + 200; after('+200 croissants'); };
+    $('#ch-xp', box).onclick = () => { S.xp += 500; checkBadges(); after('+500 XP'); };
+    $('#ch-hearts', box).onclick = () => { gainHeart(MAXH); after('Vidas recargadas'); };
+    $('#ch-bak', box).onclick = () => {
+      try {
+        const o = JSON.parse(localStorage.getItem(KEY + '.bak') || 'null');
+        if (!o) return toast('No hay ninguna copia guardada.');
+        S = normalize(o); closePop(); after('Copia recuperada'); goHome(); setTab('learn');
+      } catch { toast('No se pudo leer la copia.'); }
+    };
+  });
+}
+
+/* ============ exercices supplémentaires : écouter un mot, écrire, dictée, nombres ============ */
+function exHear(v, vs) { const e = exPick(v, vs); e.t = 'hear'; return e; }
+function exType(s) { return { t: 'type', item: s, ans: s.fr, ref: ['s', s.lesson, s.fr] }; }
+function exDict(s) { return { t: 'dictation', item: s, ans: s.fr, ref: ['s', s.lesson, s.fr] }; }
+function checkTyped(ans, target) {
+  const a = norm(ans), t = norm(target);
+  if (a === t) return { ok: true, note: '' };
+  const flat = x => deacc(x).replace(/['-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const da = flat(a), dt = flat(t);
+  if (da === dt) return { ok: true, note: 'Ojo con los acentos y los apóstrofos.' };
+  if (lev(da, dt) <= (dt.length > 14 ? 2 : 1)) return { ok: true, note: 'Casi perfecto: mirá bien la ortografía.' };
+  return { ok: false, note: '' };
+}
+function buildLessonHard(l, level) {
+  const P = pool([l]), V = P.vocab, SS = P.sent, G = P.gram;
+  const vq = shuffle(V), sq = shuffle(SS), gq = shuffle(G);
+  const tv = () => vq.length ? vq.shift() : rand(V), ts = () => sq.length ? sq.shift() : rand(SS);
+  const ex = [];
+  const fill = () => { const g = gq.shift(); if (g) ex.push(exFill(g)); };
+  const short = () => { // une phrase courte, plus facile à écrire
+    const s = sq.find(x => tokens(x.fr).length <= 6) || SS.slice().sort((a, b) => a.fr.length - b.fr.length)[Math.floor(Math.random() * 3)];
+    const k = sq.indexOf(s); if (k >= 0) sq.splice(k, 1);
+    return s;
+  };
+  if (level === 2) {
+    ex.push(exHear(tv(), V), exHear(tv(), V)); if (V.length >= 4) ex.push(exMatch(V));
+    fill(); ex.push(exBuild(ts(), SS, 'fr'), exListen(ts(), SS), exType(short()));
+    fill(); ex.push(exBuild(ts(), SS, 'es')); if (speakOK()) ex.push(exSpeak(ts()));
+    ex.push(exListen(ts(), SS), exType(short())); fill(); ex.push(exPickFr(tv(), V));
+  } else {
+    ex.push(exHear(tv(), V)); fill(); ex.push(exDict(short()), exType(short()));
+    fill(); ex.push(exBuild(ts(), SS, 'fr')); if (speakOK()) ex.push(exSpeak(ts()));
+    ex.push(exDict(short()), exType(short())); fill(); ex.push(exListen(ts(), SS), exDict(short()));
+    if (speakOK()) ex.push(exSpeak(ts())); fill();
+  }
+  return ex.filter(Boolean);
+}
+function typeUI(body, ex, head, top, placeholder, numeric) {
+  body.innerHTML = head + top + (numeric
+    ? `<input class="tinput num" id="tin" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="${placeholder}" autocomplete="off">`
+    : `<textarea class="tinput" id="tin" rows="2" placeholder="${placeholder}" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" lang="fr"></textarea>
+       <div class="accents">${"é è ê à â ç ù î ô œ '".split(' ').map(c => `<button class="acc" type="button">${c}</button>`).join('')}</div>`);
+  wirePlay(body);
+  const tin = $('#tin', body);
+  tin.oninput = () => setAnswer(tin.value.trim());
+  tin.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (!$('#q-check').disabled) $('#q-check').click(); } };
+  $$('.acc', body).forEach(b => b.onclick = () => {
+    if (Q.locked) return;
+    const a = tin.selectionStart ?? tin.value.length, z = tin.selectionEnd ?? a;
+    tin.value = tin.value.slice(0, a) + b.textContent + tin.value.slice(z);
+    tin.focus(); tin.setSelectionRange(a + 1, a + 1); tin.oninput();
+  });
+}
+RENDER_EX.hear = (body, ex, head) => {
+  body.innerHTML = head + `<h2 class="qtitle">¿Qué escuchás?</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>` +
+    `<div class="options">${ex.opts.map((o, i) => `<button class="opt" data-i="${i}"><span class="k">${i + 1}</span>${esc(o)}</button>`).join('')}</div>`;
+  wirePlay(body);
+  $$('.opt', body).forEach(b => b.onclick = () => { if (Q.locked) return; sfx.tap(); $$('.opt', body).forEach(x => x.classList.remove('sel')); b.classList.add('sel'); setAnswer(ex.opts[b.dataset.i]); });
+  setTimeout(() => play(ex.item.au), 300);
+};
+RENDER_EX.type = (body, ex, head) => typeUI(body, ex, head, `<h2 class="qtitle">Escribí en francés</h2>` + promptBubble(ex.item.es), 'Escribí acá…');
+RENDER_EX.dictation = (body, ex, head) => {
+  typeUI(body, ex, head, `<h2 class="qtitle">Escribí lo que escuchás</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`, 'Escribí en francés…');
+  setTimeout(() => play(ex.item.au), 300);
+};
+RENDER_EX.num = (body, ex, head) => {
+  typeUI(body, ex, head, `<h2 class="qtitle">¿Qué número escuchás?</h2><div class="big-say"><button class="say" data-play="${ex.item.au}">${ic('volume-2')}</button><button class="say slow" data-play="${ex.item.au}" data-slow="1" aria-label="Más lento">${ic('snail')}</button></div>`, '0 – 100', true);
+  setTimeout(() => play(ex.item.au), 300);
+};
+Object.assign(TYPE_LABEL, { hear: ['ear', 'Escuchá'], type: ['keyboard', 'Escribí'], dictation: ['pen-line', 'Dictado'], num: ['hash', 'Números'] });
+
+/* ============ entraîneurs : verbes et nombres ============ */
+const TENSE = { present: 'Presente', pc: 'Passé composé', imparfait: 'Imparfait', futur: 'Futur simple' };
+const PRON = ['je', 'tu', 'il', 'nous', 'vous', 'ils'];
+const subj = (i, form) => i === 0 && /^[aeiouyhéèêâîô]/i.test(form) ? "j'" : PRON[i] + ' ';
+function buildVerbs(tense) {
+  const vs = shuffle(C.verbs || []), out = [];
+  for (let k = 0; k < 12 && vs.length; k++) {
+    const v = vs[k % vs.length], forms = v.forms[tense], i = Math.floor(Math.random() * 6), ans = forms[i];
+    const others = shuffle([...new Set(forms.filter(f => f !== ans))]).slice(0, 2);
+    const opts = shuffle([ans, ...others]);
+    const s0 = subj(i, ans), s = s0.charAt(0).toUpperCase() + s0.slice(1);
+    out.push({ t: 'fill', item: { q: s + '___', opts, a: opts.indexOf(ans), es: `${v.inf} = ${v.es}`, why: `${v.inf} · ${TENSE[tense]}`, au: v.au[tense][i] },
+      opts: opts.map((o, j) => ({ o, i: j })), ans, full: s + ans, hint: `${v.inf} (${v.es}) · ${TENSE[tense]}`, ref: null });
+  }
+  return out;
+}
+function frNum(n) {
+  const u = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'dix-sept', 'dix-huit', 'dix-neuf'];
+  if (n < 20) return u[n];
+  if (n === 100) return 'cent';
+  const T = { 2: 'vingt', 3: 'trente', 4: 'quarante', 5: 'cinquante', 6: 'soixante' }, t = Math.floor(n / 10), r = n % 10;
+  if (t <= 6) return r === 0 ? T[t] : r === 1 ? T[t] + ' et un' : T[t] + '-' + u[r];
+  if (t === 7) return r === 1 ? 'soixante et onze' : 'soixante-' + u[10 + r];
+  if (t === 8) return r === 0 ? 'quatre-vingts' : 'quatre-vingt-' + u[r];
+  return 'quatre-vingt-' + u[10 + r];
+}
+function buildNums() {
+  const pick = new Set();
+  while (pick.size < 4) pick.add(Math.floor(Math.random() * 21));
+  while (pick.size < 10) pick.add(21 + Math.floor(Math.random() * 80));
+  return shuffle([...pick]).map(n => ({ t: 'num', item: { au: (C.nums || {})[n], es: `${n} = ${frNum(n)}` }, ans: String(n), ref: null }));
+}
+function chooseTense() {
+  pop(`<span class="piaf" data-piaf="happy"></span><h2>Verbos</h2><p>24 verbos clave. Elegí el tiempo que querés practicar.</p>
+    ${Object.entries(TENSE).map(([k, t]) => `<button class="btn wide" data-tense="${k}">${t}</button>`).join('')}
+    <button class="btn ghost wide" data-close>Cancelar</button>`, box => {
+    $$('[data-tense]', box).forEach(b => b.onclick = () => { closePop(); startQuiz(buildVerbs(b.dataset.tense), { title: 'Verbos · ' + TENSE[b.dataset.tense], xp: 10, practice: 'verbs' }); });
+  });
+}
+
+/* ============ lectures ============ */
+function openStory(st) {
+  stopAudio(); D = null;
+  const el = $('#dlg');
+  el.innerHTML = `<div class="dlg-head"><button class="icon-btn" id="dl-x">${ic('x')}</button><b>${esc(st.title)}</b></div>
+    <div class="scene">${ic('book-open-text')}<span><b>${esc(st.kind || 'Lectura')}</b> · ${esc(st.intro || '')}</span></div>
+    <div class="chat story" id="chat">${st.paras.map((p, i) => `<button class="para" data-i="${i}"><span class="t">${esc(p.fr)}</span><span class="es">${esc(p.es)}</span></button>`).join('')}</div>
+    <div class="hint">Tocá una frase para escucharla y ver la traducción</div>
+    <div class="dlg-foot"><button class="btn" id="st-all">${ic('play')} Escuchar</button><button class="btn purple" id="st-q">Preguntas</button></div>`;
+  const paras = $$('.para', el);
+  const mark = i => paras.forEach((p, k) => p.classList.toggle('playing', k === i));
+  paras.forEach((p, i) => p.onclick = async () => { p.classList.toggle('show-es'); mark(i); await play(st.paras[i].au); p.classList.remove('playing'); });
+  $('#st-all', el).onclick = async () => {
+    for (let i = 0; i < st.paras.length; i++) {
+      if (screen !== 'dlg') return;
+      mark(i); paras[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!(await play(st.paras[i].au))) { mark(-1); return; }
+    }
+    mark(-1);
+  };
+  $('#dl-x', el).onclick = goHome;
+  $('#st-q', el).onclick = () => {
+    stopAudio();
+    const list = (st.questions || []).map(q => ({ t: 'pick', dq: true, item: { fr: q.q }, opts: shuffle(q.opts), ans: q.opts[q.a], ref: null }));
+    startQuiz(list, { node: st.id, title: st.title, xp: 15 });
+  };
+  show('dlg'); $('#chat').scrollTop = 0;
+}
+
+/* ============ bienvenue (premier lancement) ============ */
+function welcome() {
+  pop(`<span class="piaf party flap" data-piaf="joy"></span><h2>Bonjour, ${NAME} !</h2>
+    <p>Soy Piaf. Vamos a aprender francés de a poquito, <i>petit à petit</i>: lecciones cortas, diálogos, lecturas y juegos.</p>
+    <p style="color:var(--ink)">¿Cuánto querés practicar por día?</p>
+    <div class="chips" style="justify-content:center">${[10, 20, 30, 50].map(g => `<button class="chip ${S.goal === g ? 'on' : ''}" data-goal="${g}">${{ 10: '5 min', 20: '10 min', 30: '15 min', 50: '20 min' }[g]}</button>`).join('')}</div>
+    <button class="btn primary wide" data-close>¡Empezar!</button>`, box => {
+    $$('[data-goal]', box).forEach(b => b.onclick = () => { S.goal = +b.dataset.goal; $$('[data-goal]', box).forEach(x => x.classList.toggle('on', x === b)); save(); updateTop(); });
+  });
+  S.onboarded = true; save();
 }
 
 const RENDER = { learn: renderLearn, practice: renderPractice, words: renderWords, me: renderMe, quests: renderQuests, shop: renderShop };
@@ -1193,6 +1497,7 @@ if (!NATIVE && 'serviceWorker' in navigator && location.protocol === 'https:') {
 if (!S.since) { S.since = today(); save(); }
 const streakMsg = settleStreak();
 quests();
+if (!S.onboarded) { if (S.xp === 0 && !Object.keys(S.nodes).length) setTimeout(welcome, 400); else { S.onboarded = true; save(); } }
 if (streakMsg) setTimeout(() => toast(streakMsg), 900);
 hydratePiaf();
 updateTop();

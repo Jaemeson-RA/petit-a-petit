@@ -84,6 +84,8 @@ function normalize(o) {
   st.stats = Object.assign({}, DEF.stats, st.stats);
   for (const k of ['chests', 'badges', 'nodes', 'days', 'seen']) if (!st[k] || typeof st[k] !== 'object') st[k] = {};
   if (!Array.isArray(st.mistakes)) st.mistakes = [];
+  if (!st.culture || typeof st.culture !== 'object') st.culture = {};
+  if (!st.culture.done || typeof st.culture.done !== 'object') st.culture.done = {};
   for (const k in st.nodes) { const n = st.nodes[k]; if (n && n.times && n.lvl == null) n.lvl = 1; }
   st.v = 2;
   return st;
@@ -100,7 +102,8 @@ function loadState() {
 const loaded = loadState();
 S = loaded.s;
 try { if (loaded.raw && loaded.from === KEY && (loaded.s.xp > 0 || Object.keys(loaded.s.nodes).length)) localStorage.setItem(KEY + '.bak', loaded.raw); } catch { }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { } };
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { } };
+const save = () => { S.mod = Date.now(); persist(); if (typeof syncSoon === 'function') syncSoon(); };
 function streakAlive() { return S.last && dayDiff(S.last, today()) <= 1; }
 /* Un jour d'utilisation = un jour de série : dès le premier exercice répondu. Renvoie true si la série vient d'avancer. */
 function touchDay() {
@@ -203,6 +206,7 @@ const BADGES = [
   ['dialog6', 'messages-square', 'Conversadora', 'Terminá 6 diálogos', s => s.stats.dialogs >= 6],
   ['xp1000', 'trophy', 'Mil puntos', 'Llegá a 1000 XP', s => s.xp >= 1000],
   ['shop', 'shopping-bag', 'Clienta de Jacques', 'Comprá algo en la tienda', s => s.stats.bought >= 1],
+  ['delf', 'graduation-cap', 'Lista para el DELF', 'Aprobá el examen blanco', s => !!s.exam && s.exam.best >= 50],
   ['unit', 'flag', 'Unidad completa', 'Terminá una unidad entera', () => UNITS.some(u => u.nodes.every(n => isDone(n.id)))],
 ];
 function checkBadges() {
@@ -460,7 +464,10 @@ function setTab(t) {
   $('#tab-' + t).scrollTop = t === 'learn' ? $('#tab-learn').scrollTop : 0;
 }
 $$('.tabbar button').forEach(b => b.onclick = () => { sfx.tap(); setTab(b.dataset.tab); });
-function goHome() { stopAudio(); closeVideo(); show('home'); updateTop(); RENDER[tab](); }
+function goHome() {
+  stopAudio(); closeVideo(); show('home'); updateTop(); RENDER[tab]();
+  if (S.sync && S.sync.at && !S.sync.told) setTimeout(() => { if ($('#pop').hidden && screen === 'home') { S.sync.told = true; persist(); openSyncCode(); } }, 1400);
+}
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200); }
 function ask(text, yes = 'Sí') {
@@ -479,6 +486,7 @@ function updateTop() {
   $('#st-hearts b').textContent = heartsNow();
   $('#st-hearts').hidden = !S.set.hearts;
   const qd = $('.tabbar [data-tab=quests]'); if (qd) qd.classList.toggle('dot', questsReady() > 0);
+  const cd = $('.tabbar [data-tab=culture]'); if (cd) cd.classList.toggle('dot', !!C.culture && S.culture.seen !== dayNo());
   const pct = Math.min(1, (S.days[today()] || 0) / S.goal);
   $('#st-goal .g-fg').style.strokeDashoffset = 94.25 * (1 - pct);
 }
@@ -538,10 +546,11 @@ function renderLearn() {
     });
     html += `</div></section>`;
   });
-  html += `<div class="path-end"><div class="end-art"><svg class="eiffel" viewBox="0 0 60 100"><path d="M30 2v10M27 12h6l3 28H24zM21 40h18l6 30H15zM13 70h34l8 28H43c0-8-5-13-13-13S17 90 17 98H5z" fill="currentColor"/><path d="M22 40h16M14 70h32" stroke="var(--bg)" stroke-width="3"/></svg><span class="piaf" data-piaf="wow"></span></div><div>Al final del camino: ¡nivel A2!</div></div>`;
+  html += `<div class="path-end"><div class="end-art"><svg class="eiffel" viewBox="0 0 60 100"><path d="M30 2v10M27 12h6l3 28H24zM21 40h18l6 30H15zM13 70h34l8 28H43c0-8-5-13-13-13S17 90 17 98H5z" fill="currentColor"/><path d="M22 40h16M14 70h32" stroke="var(--bg)" stroke-width="3"/></svg><span class="piaf" data-piaf="wow"></span></div><div>Al final del camino: ¡nivel A2!</div>${EXAM ? `<button class="exam-card ${examOpen() ? '' : 'locked'}" id="exam-go">${ic(examOpen() ? 'graduation-cap' : 'lock')}<span><b>Examen blanco DELF A2</b><small>${S.exam && S.exam.best != null ? 'Tu mejor nota: ' + S.exam.best + ' / 100' : examOpen() ? 'Escuchar, leer, escribir y hablar' : 'Se abre al terminar todas las lecciones'}</small></span>${ic('chevron-right')}</button>` : ''}</div>`;
   el.innerHTML = html;
   hydratePiaf(el);
   drawTrails(el);
+  const eg = $('#exam-go', el); if (eg) eg.onclick = openExam;
   const hs = $('#h-srs', el); if (hs) hs.onclick = () => startQuiz(buildSrs(), { title: 'Repaso del día', xp: 10, practice: 'srs' });
   $$('[data-node]', el).forEach(b => b.onclick = () => openNode(b.dataset.node));
   $$('[data-guide]', el).forEach(b => b.onclick = () => openGuide(b.dataset.guide));
@@ -782,7 +791,7 @@ const TYPE_LABEL = {
 function startQuiz(list, meta) {
   if (!list.length) { toast('Todavía no hay ejercicios para practicar.'); return; }
   if (meta.hearts && S.set.hearts && heartsNow() === 0) { outOfHearts(); return; }
-  Q = { list: list.slice(), total: list.length, i: 0, done: 0, right: 0, wrong: 0, combo: 0, bestCombo: 0, retried: new Set(), meta, t0: Date.now(), answer: null, locked: false };
+  Q = { list: list.slice(), total: list.length, i: 0, done: 0, right: 0, wrong: 0, combo: 0, bestCombo: 0, retried: new Set(), meta, t0: Date.now(), answer: null, locked: false, log: [] };
   show('quiz');
   updateHearts();
   nextEx();
@@ -794,7 +803,7 @@ function nextEx() {
   if (Q.i >= Q.list.length) return finishQuiz();
   Q.ex = Q.list[Q.i];
   Q.answer = null; Q.locked = false;
-  $('#q-check').disabled = true; $('#q-check').textContent = 'Comprobar'; $('#q-check').hidden = false;
+  $('#q-check').disabled = true; $('#q-check').textContent = Q.meta.exam ? 'Siguiente' : 'Comprobar'; $('#q-check').hidden = false;
   $('#q-skip').hidden = true;
   setProgress();
   const body = $('#q-body'); body.scrollTop = 0;
@@ -949,6 +958,7 @@ $('#q-check').onclick = () => {
 function judge(ok, extra = '') {
   Q.locked = true;
   if (touchDay()) { Q.newDay = true; updateTop(); }
+  if (Q.meta.exam) return examAnswer(ok);
   { const ti = $('#tin'); if (ti) { ti.disabled = true; ti.blur(); } }
   const ex = Q.ex, fb = $('#q-fb');
   fb.classList.toggle('bad', !ok);
@@ -1025,6 +1035,7 @@ $('#q-close').onclick = async () => {
 
 function finishQuiz() {
   const m = Q.meta;
+  if (m.exam) return finishExam();
   const answered = Q.right + Q.wrong;
   const acc = answered ? Math.round(100 * Q.right / answered) : 100;
   const stars = acc >= 95 ? 3 : acc >= 75 ? 2 : 1;
@@ -1204,6 +1215,7 @@ function renderPractice() {
     ['grammar', 'puzzle', '#E8508A', 'Gramática', 'Completá los huecos', null, P.gram.length >= 4],
     ['verbs', 'repeat', '#0B7A67', 'Verbos', 'Conjugá los 24 verbos clave', null, (C.verbs || []).length > 0],
     ['numbers', 'hash', '#D06A00', 'Números', 'Escuchá y escribí del 0 al 100', null, !!C.nums],
+    ['exam', 'graduation-cap', '#3A62E0', 'Examen blanco DELF A2', examOpen() ? 'Las cuatro pruebas, con nota final' : 'Se abre al terminar todas las lecciones', null, examOpen()],
   ];
   el.innerHTML = `<h1 class="page">Práctica</h1>` + (ls.length ? '' : `<div class="card"><p>Terminá tu primera lección para desbloquear la práctica.</p></div>`) +
     items.map(([k, icn, col, t, s, n, on]) => `<button class="card prac" data-p="${k}" ${on ? '' : 'disabled'}><span class="p-ico" style="background:${col}">${ic(icn)}</span><span><b>${t}</b><span>${s}</span></span>${n ? `<span class="count">${n}</span>` : ''}</button>`).join('') +
@@ -1216,6 +1228,7 @@ function renderPractice() {
   $$('[data-p]', el).forEach(b => b.onclick = () => {
     const k = b.dataset.p;
     if (k === 'verbs') return chooseTense();
+    if (k === 'exam') return openExam();
     const list = k === 'mistakes' ? buildMistakes() : k === 'numbers' ? buildNums() : k === 'srs' ? buildSrs() : practiceSet(k);
     startQuiz(list, { title: b.querySelector('b').textContent, xp: 10, practice: k });
   });
@@ -1269,7 +1282,8 @@ function renderMe() {
     <div class="card"><h3>Esta semana</h3><p>Récord de racha: ${S.best} día${S.best === 1 ? '' : 's'}</p>
       <div class="week">${days.map(d => `<div class="d ${d.k === today() ? 'today' : ''}"><div class="bar ${d.xp >= S.goal ? 'ok' : ''}" style="height:${Math.max(6, 100 * d.xp / max)}%"></div><span>${d.l}</span></div>`).join('')}</div></div>
     <div class="card"><h3>Meta diaria</h3><p style="margin-bottom:10px">XP por día</p><div class="chips">${[10, 20, 30, 50].map(g => `<button class="chip ${S.goal === g ? 'on' : ''}" data-goal="${g}">${g} XP · ${{ 10: 'Tranqui', 20: 'Normal', 30: 'En serio', 50: 'Intensa' }[g]}</button>`).join('')}</div></div>
-    <div class="card"><h3>Mi progreso</h3><p style="margin-bottom:12px">Tu avance se guarda solo en este teléfono. Hacé una copia de vez en cuando.</p>
+    <div class="card"><h3>Mi progreso</h3><p style="margin-bottom:10px">Tu avance se guarda en este teléfono y, además, en una copia automática en internet. ${syncStatus()}</p>
+      ${S.sync && S.sync.id ? `<button class="sync-row" id="m-sync">${ic('shield')}<span><small>Código de respaldo</small><b>${codeOf(S.sync.id)}</b></span>${ic('chevron-right')}</button>` : ''}
       <div class="cheat-row"><button class="btn primary" id="m-save">${ic('download')} Guardar</button><button class="btn" id="m-load">${ic('upload')} Restaurar</button></div>
       <button class="btn ghost wide" id="m-cheat" style="margin-top:6px">${ic('wand-sparkles')} Trucos</button></div>
     <div class="card"><h3>Ajustes</h3>
@@ -1287,6 +1301,7 @@ function renderMe() {
   $$('[data-set]', el).forEach(b => b.onclick = () => { S.set[b.dataset.set] = !S.set[b.dataset.set]; save(); b.classList.toggle('on'); sfx.tap(); updateTop(); });
   $$('[data-goal]', el).forEach(b => b.onclick = () => { S.goal = +b.dataset.goal; save(); renderMe(); updateTop(); });
   $$('[data-theme-set]', el).forEach(b => b.onclick = () => { S.set.theme = b.dataset.themeSet; save(); applyTheme(); renderMe(); });
+  if ($('#m-sync')) $('#m-sync').onclick = openSyncCode;
   $('#m-save').onclick = openBackup; $('#m-load').onclick = openRestore; $('#m-cheat').onclick = openCheats;
   $('#m-reset').onclick = async () => { if (await ask('¿Borrar todo tu progreso? No se puede deshacer.', 'Borrar')) { const keep = S.set; S = normalize({}); S.onboarded = true; S.set = keep; S.since = today(); save(); goHome(); setTab('learn'); } };
 }
@@ -1352,6 +1367,169 @@ function toggleTheme() {
 }
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch { }
 
+
+/* ============ sauvegarde automatique en ligne ============
+   Chaque téléphone a un identifiant aléatoire ; l'état du jeu (sans donnée personnelle) est envoyé au service
+   sync-worker/ quelques secondes après chaque changement, et quand l'appli passe en arrière-plan.
+   Le « código de respaldo » (l'identifiant, lisible) permet de tout récupérer sur un autre téléphone. */
+const SYNC_URL = 'https://petit-a-petit-sync.jaemeson-dieu.workers.dev/v1/';
+const SYNC_ON = (location.protocol === 'https:' && location.hostname !== 'localhost') || /[?&]sync=1/.test(location.search);
+const newSyncId = () => { const a = new Uint8Array(16); crypto.getRandomValues(a); return [...a].map(b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join(''); };
+const codeOf = id => (id.match(/.{1,4}/g) || []).join('-').toUpperCase();
+const idOf = code => String(code).toLowerCase().replace(/[^a-z0-9]/g, '');
+const filled = st => !!st && (st.xp > 0 || Object.keys(st.nodes || {}).length > 0 || !!st.last);
+let syncTimer = null, syncBusy = false;
+function syncSoon(ms = 12000) { if (!SYNC_ON) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncPush(), ms); }
+async function syncPush(keepalive = false) {
+  if (!SYNC_ON || syncBusy || !filled(S)) return false;
+  if (!S.sync || !S.sync.id) S.sync = { id: newSyncId(), at: 0 };
+  if (S.sync.pushed && S.sync.pushed === S.mod) return true; // rien de nouveau
+  syncBusy = true;
+  const mod = S.mod;
+  try {
+    const { sync, ...state } = S;
+    const r = await fetch(SYNC_URL + S.sync.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }), keepalive });
+    if (r.ok) { const j = await r.json(); S.sync.at = j.at; S.sync.pushed = mod; persist(); return true; }
+  } catch { } finally { syncBusy = false; }
+  return false;
+}
+async function syncFetch(id) {
+  const r = await fetch(SYNC_URL + id, { cache: 'no-store' });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('net');
+  const j = await r.json();
+  return j && j.state && typeof j.state.xp === 'number' ? j : null;
+}
+function adoptRemote(j, id) {
+  const keep = S.set;
+  S = normalize(j.state);
+  S.set = Object.assign({}, S.set, { theme: keep.theme }); // on garde le thème choisi sur ce téléphone
+  S.sync = { id, at: j.at, pushed: S.mod, told: true };
+  persist(); applyTheme(); updateTop();
+  if (screen === 'home') RENDER[tab]();
+}
+/* au démarrage : si la copie en ligne est plus récente que ce téléphone (autre appareil), on la reprend */
+async function syncStart() {
+  if (!SYNC_ON || !S.sync || !S.sync.id) return;
+  try {
+    const j = await syncFetch(S.sync.id);
+    if (j && filled(j.state) && (!filled(S) || (j.state.mod || 0) > (S.mod || 0))) { adoptRemote(j, S.sync.id); toast('Progreso sincronizado'); }
+    else syncSoon(3000);
+  } catch { }
+}
+async function restoreFromCloud(code) {
+  const id = idOf(code);
+  if (!/^[a-z0-9]{16,40}$/.test(id)) throw new Error('code');
+  const j = await syncFetch(id);
+  if (!j || !filled(j.state)) throw new Error('empty');
+  adoptRemote(j, id);
+}
+function syncStatus() {
+  if (!SYNC_ON) return 'La copia automática funciona en la app publicada.';
+  if (!S.sync || !S.sync.at) return 'Se activa sola cuando hagas tu primer ejercicio.';
+  const min = Math.round((Date.now() - S.sync.at) / 60000);
+  return 'Última copia: ' + (min < 2 ? 'recién' : min < 60 ? `hace ${min} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} día${Math.round(min / 1440) > 1 ? 's' : ''}`) + '.';
+}
+function openSyncCode() {
+  if (!S.sync || !S.sync.id) return toast('Todavía no hay copia: hacé un ejercicio primero.');
+  const code = codeOf(S.sync.id);
+  pop(`<span class="npc-art small">${animal('Shelby')}</span><h2>Tu código de respaldo</h2>
+    <p>Tu progreso se guarda solo en internet. Con este código lo recuperás en cualquier teléfono. Mandátelo por WhatsApp o guardalo en tus notas.</p>
+    <div class="sync-code" id="sy-code">${code}</div>
+    <button class="btn primary wide" id="sy-copy">${ic('copy')} Copiar</button>
+    ${navigator.share ? `<button class="btn wide" id="sy-share">${ic('share-2')} Compartir</button>` : ''}
+    <button class="btn ghost wide" data-close>Listo</button>`, box => {
+    $('#sy-copy', box).onclick = async () => { try { await navigator.clipboard.writeText(code); toast('Código copiado'); } catch { toast(code); } };
+    const sh = $('#sy-share', box);
+    if (sh) sh.onclick = () => navigator.share({ title: 'Petit à petit', text: `Mi código de respaldo de Petit à petit: ${code}` }).catch(() => { });
+  });
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') syncPush(true); });
+window.addEventListener('pagehide', () => { syncPush(true); });
+
+/* ============ examen blanc DELF A2 ============ */
+const EXAM = C.exam || null;
+const SEC_NAME = { co: 'Comprensión oral', ce: 'Comprensión escrita', pe: 'Expresión escrita', po: 'Expresión oral' };
+const examOpen = () => !!EXAM && (S.set.unlockAll || Object.values(LESSON).every(l => isDone(l.id)));
+function buildExam() {
+  const out = [];
+  EXAM.sections.forEach(sec => {
+    if (sec.docs) sec.docs.forEach(d => d.questions.forEach((q, qi) => out.push({ t: 'doc', sec: sec.id, doc: d, first: qi === 0, n: qi + 1, of: d.questions.length, item: { fr: q.q, es: q.es }, opts: shuffle(q.opts), ans: q.opts[q.a], ref: null })));
+    else if (sec.id === 'pe') sec.items.forEach(it => out.push({ t: 'type', sec: 'pe', item: it, ans: it.fr, ref: null }));
+    else if (sec.id === 'po' && speakOK()) sec.items.forEach(it => out.push({ t: 'speak', sec: 'po', item: it, ans: it.fr, ref: null }));
+  });
+  return out;
+}
+function openExam() {
+  if (!EXAM) return;
+  if (!examOpen()) { sfx.bad(); return toast('Terminá todas las lecciones para rendir el examen.'); }
+  const best = S.exam && S.exam.best != null ? `<p>Tu mejor nota: <b style="color:var(--ink)">${S.exam.best} / 100</b></p>` : '';
+  pop(`<span class="piaf" data-piaf="happy" data-prop="pencil"></span><h2>Examen blanco DELF A2</h2>
+    <p>Cuatro partes, como en el examen de verdad: escuchar, leer, escribir y hablar. Son unos 15 minutos.</p>
+    <p>Acá no hay vidas ni correcciones en el momento: la nota y las respuestas aparecen al final. Se aprueba con 50 sobre 100.</p>${best}
+    <button class="btn primary wide" id="ex-go">Empezar el examen</button>
+    <button class="btn ghost wide" data-close>Ahora no</button>`, box => {
+    $('#ex-go', box).onclick = () => { closePop(); startQuiz(buildExam(), { title: 'Examen blanco DELF A2', xp: 20, exam: true }); };
+  });
+}
+async function playLines(lines, btn) {
+  if (btn) btn.classList.add('on');
+  for (const l of lines) { if (!(await play(l.au))) break; }
+  if (btn) btn.classList.remove('on');
+}
+RENDER_EX.doc = (body, ex) => {
+  const d = ex.doc, audio = !!d.lines;
+  body.innerHTML = `<div class="qtype">${ic(audio ? 'headphones' : 'book-open-text')} ${esc(SEC_NAME[ex.sec])} · ${esc(d.kind)} · ${ex.n}/${ex.of}</div>
+    <p class="exam-intro">${esc(d.intro || '')}</p>
+    ${audio ? `<div class="exam-audio"><button class="say" id="ex-play">${ic('volume-2')}</button><span>Tocá para escuchar. Podés repetirlo.</span></div>`
+      : `<div class="exam-text">${d.text.map(t => `<p>${esc(t)}</p>`).join('')}</div>`}
+    <h2 class="qtitle exam-q">${esc(ex.item.fr)}</h2>
+    <div class="options">${ex.opts.map((o, i) => `<button class="opt" data-i="${i}"><span class="k">${'ABC'[i]}</span>${esc(o)}</button>`).join('')}</div>`;
+  $$('.opt', body).forEach(b => b.onclick = () => { if (Q.locked) return; sfx.tap(); $$('.opt', body).forEach(x => x.classList.remove('sel')); b.classList.add('sel'); setAnswer(ex.opts[b.dataset.i]); });
+  if (audio) {
+    const btn = $('#ex-play', body);
+    btn.onclick = () => playLines(d.lines, btn);
+    if (ex.first) setTimeout(() => playLines(d.lines, btn), 400);
+  }
+};
+TYPE_LABEL.doc = ['book-open-text', 'Examen'];
+function examAnswer(ok) {
+  Q.log.push({ ex: Q.ex, ok, given: Q.answer });
+  if (ok) Q.right++; else Q.wrong++;
+  Q.done++; Q.i++;
+  sfx.tap(); save();
+  nextEx();
+}
+function finishExam() {
+  const log = Q.log, secs = ['co', 'ce', 'pe', 'po'].filter(k => log.some(x => x.ex.sec === k));
+  const parts = secs.map(k => { const xs = log.filter(x => x.ex.sec === k), ok = xs.filter(x => x.ok).length; return { k, ok, n: xs.length, pts: Math.round(250 * ok / xs.length) / 10 }; });
+  const total = Math.round(parts.reduce((a, p) => a + p.pts, 0) * 100 / (25 * parts.length));
+  const pass = total >= 50;
+  const prev = S.exam || { best: null, times: 0 };
+  S.exam = { best: Math.max(prev.best == null ? 0 : prev.best, total), last: total, date: today(), times: (prev.times || 0) + 1 };
+  if (pass) S.nodes['exam-a2'] = { times: (S.nodes['exam-a2']?.times || 0) + 1, stars: 3, lvl: 1 };
+  const xp = addXP(pass ? 50 : 20);
+  addCoins(pass ? 30 : 10);
+  const badges = checkBadges();
+  bump.fresh = 0;
+  const wrong = log.filter(x => !x.ok);
+  const el = $('#done');
+  el.innerHTML = `<div class="exam-res"><span class="piaf ${pass ? 'party flap' : ''}" data-piaf="${pass ? 'joy' : 'happy'}"></span>
+    <h1 style="color:${pass ? 'var(--green)' : 'var(--orange)'}">${pass ? '¡Aprobado!' : 'Casi…'}</h1>
+    <div class="exam-score"><b>${total}</b><span>/ 100</span></div>
+    <p>${pass ? 'Con esta nota aprobarías el DELF A2.' : 'Se aprueba con 50. Repasá las partes más flojas y volvé a intentarlo.'}</p>
+    <div class="exam-parts">${parts.map(p => `<div class="exam-part"><div><b>${SEC_NAME[p.k]}</b><span>${p.pts} / 25</span></div><div class="q-bar"><i style="width:${100 * p.ok / p.n}%"></i></div></div>`).join('')}</div>
+    ${secs.includes('po') ? '' : '<p class="exam-note">La parte oral no se evaluó (micrófono no disponible): la nota se calculó sobre las otras tres.</p>'}
+    ${wrong.length ? `<h3 class="exam-h">Para repasar</h3>${wrong.map(x => `<div class="exam-fix"><small>${SEC_NAME[x.ex.sec]}</small><b>${esc(x.ex.t === 'doc' ? x.ex.item.fr : x.ex.item.es)}</b>${x.ex.t === 'doc' && x.ex.item.es ? `<i>${esc(x.ex.item.es)}</i>` : ''}<span class="ko">${esc(x.given || '—')}</span><span class="ok">${esc(x.ex.ans)}</span></div>`).join('')}` : '<p class="exam-note">¡Ni un error!</p>'}
+    </div><div class="done-foot"><button class="btn primary wide" id="d-ok">Continuar</button></div>`;
+  hydratePiaf(el);
+  $('#d-ok').onclick = () => { goHome(); if (badges.length) setTimeout(() => badgePop(badges), 350); };
+  show('done'); el.scrollTop = 0;
+  if (pass) sfx.win();
+  haptic('ok');
+  Q = null;
+}
+
 const UNIT_ART = ['audio-lines', 'hand', 'coffee', 'bike', 'camera', 'messages-square', 'stethoscope'];
 
 /* ============ niveaux d'XP ============ */
@@ -1393,12 +1571,19 @@ function openBackup() {
 }
 function openRestore() {
   pop(`<span class="npc-art small">${animal('Jacques')}</span><h2>Restaurar mi progreso</h2>
-    <p>Pegá acá el código que guardaste. Va a reemplazar el progreso de este teléfono.</p>
+    <p>Pegá acá tu código de respaldo (el corto, tipo ABCD-EFGH-…) o el código largo que guardaste. Va a reemplazar el progreso de este teléfono.</p>
     <textarea class="code" id="rs-code" placeholder="PAP1...." autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
     <button class="btn primary wide" id="rs-go">Restaurar</button>
     <button class="btn ghost wide" data-close>Cancelar</button>`, box => {
     $('#rs-go', box).onclick = () => {
-      try { restoreCode($('#rs-code', box).value); closePop(); toast('¡Progreso restaurado!'); goHome(); setTab('learn'); }
+      const v = $('#rs-code', box).value.trim();
+      if (!v.includes('PAP1.')) {
+        const b = $('#rs-go', box); b.disabled = true; b.textContent = 'Buscando…';
+        restoreFromCloud(v).then(() => { closePop(); toast('¡Progreso restaurado!'); goHome(); setTab('learn'); })
+          .catch(e => { b.disabled = false; b.textContent = 'Restaurar'; toast(e.message === 'code' ? 'Ese código no es válido.' : e.message === 'empty' ? 'No encontré ninguna copia con ese código.' : 'Sin conexión: probá de nuevo.'); });
+        return;
+      }
+      try { restoreCode(v); closePop(); toast('¡Progreso restaurado!'); goHome(); setTab('learn'); }
       catch { toast('Ese código no es válido. Copialo entero.'); }
     };
   });
@@ -1601,7 +1786,87 @@ function welcome() {
   S.onboarded = true; save();
 }
 
-const RENDER = { learn: renderLearn, practice: renderPractice, words: renderWords, me: renderMe, quests: renderQuests, shop: renderShop };
+/* ============ onglet CULTURA ============
+   Chaque semaine : un film, une musique, un livre ; chaque jour : un fait culturel.
+   Le compteur démarre le jour où elle ouvre l'onglet pour la première fois, pour suivre l'ordre
+   prévu (du plus accessible au plus exigeant). Les semaines passées restent consultables. */
+const CULT = C.culture || {};
+function dayNo(d = new Date()) { return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5); }
+let cuWeek = null, cuDay = null;   // semaine / jour affichés (null = aujourd'hui)
+function cultNow() {
+  const cu = S.culture, dn = dayNo(), mon = dn - (new Date().getDay() + 6) % 7;
+  if (cu.d0 == null || cu.d0 > dn || cu.w0 == null) { cu.d0 = dn; cu.w0 = mon; }
+  return { week: Math.max(0, Math.round((mon - cu.w0) / 7)), day: Math.max(0, dn - cu.d0) };
+}
+const cuPick = (kind, i) => { const a = CULT[kind] || []; return a.length ? a[i % a.length] : null; };
+const CU_KIND = {
+  films: { icn: 'clapperboard', head: 'Película de la semana', act: 'Ver tráiler', actIcn: 'play', done: 'Ya la vi', was: 'Vista', url: q => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q) },
+  music: { icn: 'music', head: 'Música de la semana', act: 'Escuchar', actIcn: 'play', done: 'Ya la escuché', was: 'Escuchada', url: q => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q) },
+  books: { icn: 'book-open', head: 'Libro de la semana', act: 'Saber más', actIcn: 'external-link', done: 'Ya lo leí', was: 'Leído', url: q => 'https://www.google.com/search?q=' + encodeURIComponent(q + ' livre') }
+};
+const CU_TOPIC = { 'Francia': 'flag', 'Bélgica': 'flag-be', 'Francofonía': 'globe', 'Lengua': 'languages' };
+const CU_PAL = [['#1F3A5F', '#F4E9D8', '#E0A53A'], ['#7A2E2E', '#F6E7D7', '#E9B872'], ['#23473B', '#F1EAD9', '#D9A441'], ['#3B2F5C', '#EFE6F5', '#E58B6B'],
+  ['#B4472E', '#FBEEDC', '#22304A'], ['#22304A', '#F3ECE0', '#D5494E'], ['#C89B3C', '#22304A', '#FFFDF8'], ['#E9DDC8', '#22304A', '#D5494E']];
+/* affiche : l'image officielle ; si elle ne charge pas (hors connexion), un carton titre prend sa place */
+function cuPoster(kind, it) {
+  let h = 0; for (const ch of it.id) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  const [bg, ink, acc] = CU_PAL[h % CU_PAL.length], n = it.title.length;
+  return `<div class="poster ${kind}" style="--pb:${bg};--pi:${ink};--pa:${acc}"><span class="p-top">${it.year}</span><b class="p-title${n > 30 ? ' l3' : n > 15 ? ' l2' : ''}" lang="fr">${esc(it.title)}</b><span class="p-by">${esc(it.by)}</span>
+    ${it.img ? `<img src="${esc(it.img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</div>`;
+}
+function cuCard(kind, it) {
+  const k = CU_KIND[kind], done = !!S.culture.done[it.id];
+  const es = it.es_title && it.es_title.toLowerCase() !== it.title.toLowerCase() ? `<span class="cu-es">«${esc(it.es_title)}»</span>` : '';
+  const tags = [it.genre, it.country, it.type === 'álbum' ? 'Álbum' : '', it.level].filter(Boolean);
+  return `<article class="card cu-card">
+    <div class="cu-kind">${ic(k.icn)}<b>${k.head}</b></div>
+    <div class="cu-row">${cuPoster(kind, it)}
+      <div class="cu-meta"><h3 lang="fr">${esc(it.title)}</h3>${es}
+        <span class="cu-by">${esc(it.by)} · ${it.year}</span>
+        <div class="cu-tags">${tags.map(t => `<span>${esc(t)}</span>`).join('')}</div>
+        ${it.au ? `<button class="cu-say" data-au="${it.au}">${ic('volume-2')}<span>Cómo se dice</span></button>` : ''}</div></div>
+    <p class="cu-syn">${esc(it.synopsis)}</p>
+    <p class="cu-why">${ic('lightbulb')}<span>${esc(it.why)}</span></p>
+    <div class="cu-act"><a class="btn primary" href="${esc(k.url(it.q || it.title))}" target="_blank" rel="noopener">${ic(k.actIcn)}${k.act}</a>
+      <button class="btn cu-done${done ? ' on' : ''}" data-done="${it.id}">${ic('check')}${done ? k.was : k.done}</button></div>
+  </article>`;
+}
+function renderCulture() {
+  const el = $('#tab-culture');
+  if (!CULT.films && !CULT.facts) { el.innerHTML = '<h1 class="page">Cultura</h1><div class="card"><p>Pronto, acá: una película, una canción y un libro por semana.</p></div>'; return; }
+  const fresh = S.culture.d0 == null, now = cultNow();
+  if (fresh || S.culture.seen !== dayNo()) { S.culture.seen = dayNo(); save(); updateTop(); }
+  const w = cuWeek == null ? now.week : Math.min(cuWeek, now.week), d = cuDay == null ? now.day : Math.min(cuDay, now.day);
+  const mon = new Date((S.culture.w0 + w * 7) * 864e5), sun = new Date((S.culture.w0 + w * 7 + 6) * 864e5);
+  const fmt = (x, m) => x.toLocaleDateString('es-AR', m ? { day: 'numeric', month: 'long', timeZone: 'UTC' } : { day: 'numeric', timeZone: 'UTC' });
+  const range = mon.getUTCMonth() === sun.getUTCMonth() ? `${fmt(mon)} al ${fmt(sun, 1)}` : `${fmt(mon, 1)} al ${fmt(sun, 1)}`;
+  const f = cuPick('facts', d);
+  const nDone = k => (CULT[k] || []).filter(x => S.culture.done[x.id]).length;
+  const fact = f ? `<article class="card cu-fact">
+      <div class="cu-kind">${ic(CU_TOPIC[f.topic] || 'globe')}<b>${d === now.day ? 'Dato del día' : 'Dato anterior'}</b><span class="cu-topic">${esc(f.topic)}</span></div>
+      <h3>${esc(f.title)}</h3><p>${esc(f.text)}</p>
+      ${f.fr ? `<div class="cu-fr">${f.au ? `<button class="say" data-au="${f.au}">${ic('volume-2')}</button>` : ''}<div><b lang="fr">${esc(f.fr)}</b><span>${esc(f.fr_es || '')}</span></div></div>` : ''}
+      <div class="cu-nav"><button data-fd="-1" ${d > 0 ? '' : 'disabled'} aria-label="Dato anterior">${ic('arrow-left')}</button><span>Día ${d + 1}</span><button data-fd="1" ${d < now.day ? '' : 'disabled'} aria-label="Dato siguiente">${ic('arrow-right')}</button></div>
+    </article>` : '';
+  el.innerHTML = `<h1 class="page">Cultura</h1>${fact}
+    <div class="cu-week"><button data-wd="-1" ${w > 0 ? '' : 'disabled'} aria-label="Semana anterior">${ic('arrow-left')}</button>
+      <div><b>${w === now.week ? 'Esta semana' : 'Semana ' + (w + 1)}</b><span>${range}</span></div>
+      <button data-wd="1" ${w < now.week ? '' : 'disabled'} aria-label="Semana siguiente">${ic('arrow-right')}</button></div>
+    ${['films', 'music', 'books'].map(k => { const it = cuPick(k, w); return it ? cuCard(k, it) : ''; }).join('')}
+    <div class="card cu-count"><div><b>${nDone('films')}</b><span>películas vistas</span></div><div><b>${nDone('music')}</b><span>músicas oídas</span></div><div><b>${nDone('books')}</b><span>libros leídos</span></div></div>
+    <p class="cu-note">Cada lunes llegan una película, una música y un libro nuevos. Con las flechas volvés a las semanas anteriores.</p>`;
+  $$('[data-au]', el).forEach(b => b.onclick = () => play(b.dataset.au));
+  $$('[data-wd]', el).forEach(b => b.onclick = () => { sfx.tap(); cuWeek = w + +b.dataset.wd; renderCulture(); el.scrollTop = 0; });
+  $$('[data-fd]', el).forEach(b => b.onclick = () => { sfx.tap(); cuDay = d + +b.dataset.fd; renderCulture(); });
+  $$('[data-done]', el).forEach(b => b.onclick = () => {
+    const id = b.dataset.done, st = el.scrollTop;
+    if (S.culture.done[id]) delete S.culture.done[id]; else { S.culture.done[id] = dayNo(); sfx.ok(); haptic('ok'); }
+    save(); renderCulture(); el.scrollTop = st;
+  });
+  $$('.cu-act a', el).forEach(a => a.onclick = e => { if (Bridge) { e.preventDefault(); Bridge.openUrl(a.href); } });
+}
+
+const RENDER = { learn: renderLearn, practice: renderPractice, words: renderWords, me: renderMe, quests: renderQuests, shop: renderShop, culture: renderCulture };
 
 /* ============ retour Android ============ */
 window.onBackKey = () => {
@@ -1635,6 +1900,7 @@ if (!NATIVE && 'serviceWorker' in navigator && location.protocol === 'https:') {
 /* ============ démarrage ============ */
 if (!S.since) { S.since = today(); save(); }
 applyTheme();
+syncStart();
 const streakMsg = settleStreak();
 quests();
 if (!S.onboarded) { if (S.xp === 0 && !Object.keys(S.nodes).length) setTimeout(welcome, 400); else { S.onboarded = true; save(); } }

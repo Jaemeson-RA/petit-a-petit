@@ -60,6 +60,8 @@ const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { c
 const sample = (a, n) => shuffle(a).slice(0, n);
 const NAME = 'Ale';
 
+/* Pastille de mot : toujours présente et de même taille — l'illustration si elle existe, sinon l'icône « écouter ». */
+const vtile = v => `<span class="vart${v.art ? '' : ' snd'}">${v.art ? art(v.art) : ic('volume-2')}</span>`;
 const UNIT_COLORS = [
   ['#12A48B', '#0B7A67'], ['#2E5BFF', '#1D3FC4'], ['#FF8A1C', '#D06A00'], ['#7B5CFF', '#5A3ED6'],
   ['#E8508A', '#B8336A'], ['#1BA3E0', '#1279AB'], ['#21A35B', '#167A43'], ['#E5484D', '#B5323A'],
@@ -480,6 +482,7 @@ function updateTop() {
   const pct = Math.min(1, (S.days[today()] || 0) / S.goal);
   $('#st-goal .g-fg').style.strokeDashoffset = 94.25 * (1 - pct);
 }
+$('#th-toggle').onclick = toggleTheme;
 $('#st-coins').onclick = () => setTab('shop');
 $('#st-hearts').onclick = () => toast(heartsNow() >= MAXH ? 'Tenés todas tus vidas.' : `Tenés ${heartsNow()} vidas · +1 en ${nextHeartIn()}`);
 $('#st-goal').onclick = () => toast(`Meta del día: ${S.days[today()] || 0} / ${S.goal} XP`);
@@ -574,7 +577,7 @@ function openIntro(l, guideMode = false) {
       <div class="sec-t">La mini clase</div>
       <div class="tip">${l.tip || ''}</div>
       <div class="sec-t">Palabras de la lección · tocá para escuchar</div>
-      <div class="vocab-list">${l.vocab.map((v, i) => `<button class="vchip" data-v="${i}">${v.art ? `<span class="vart">${art(v.art)}</span>` : ''}<div><b>${esc(v.fr)}</b><span>${esc(v.es)}</span></div></button>`).join('')}</div>
+      <div class="vocab-list">${l.vocab.map((v, i) => `<button class="vchip" data-v="${i}">${vtile(v)}<div><b>${esc(v.fr)}</b><span>${esc(v.es)}</span></div></button>`).join('')}</div>
       <div class="sec-t">Frases modelo</div>
       ${l.sentences.slice(0, 4).map((s, i) => `<button class="word" data-s="${i}"><div><div class="w-fr">${esc(s.fr)}</div><div class="w-es">${esc(s.es)}</div></div>${ic('volume-2')}</button>`).join('')}
     </div>
@@ -1239,7 +1242,7 @@ function renderWords() {
       const vs = l.vocab.filter(v => !q || deacc(norm(v.fr + ' ' + v.es)).includes(q));
       if (!vs.length) return;
       count += vs.length;
-      html += `<div class="wgroup"><h4>${esc(u.title)} · ${esc(l.title)}</h4>${vs.map(v => `<button class="word" data-au="${v.au}">${v.art ? `<span class="vart">${art(v.art)}</span>` : ''}<div><div class="w-fr">${esc(v.fr)}${v.g ? `<span class="gtag ${v.g}">${v.g === 'm' ? 'masc.' : 'fem.'}</span>` : ''}</div><div class="w-es">${esc(v.es)}</div></div>${ic('volume-2')}</button>`).join('')}</div>`;
+      html += `<div class="wgroup"><h4>${esc(u.title)} · ${esc(l.title)}</h4>${vs.map(v => `<button class="word" data-au="${v.au}">${vtile(v)}<div><div class="w-fr">${esc(v.fr)}${v.g ? `<span class="gtag ${v.g}">${v.g === 'm' ? 'masc.' : 'fem.'}</span>` : ''}</div><div class="w-es">${esc(v.es)}</div></div></button>`).join('')}</div>`;
     }));
     $('#w-list', el).innerHTML = count ? html : `<div class="empty"><span class="piaf" data-piaf="${q ? 'sad' : 'happy'}"></span><p>${q ? 'No encontré esa palabra.' : 'Las palabras aparecen acá cuando terminás una lección.'}</p></div>`;
     hydratePiaf($('#w-list', el));
@@ -1270,13 +1273,13 @@ function renderMe() {
       <div class="cheat-row"><button class="btn primary" id="m-save">${ic('download')} Guardar</button><button class="btn" id="m-load">${ic('upload')} Restaurar</button></div>
       <button class="btn ghost wide" id="m-cheat" style="margin-top:6px">${ic('wand-sparkles')} Trucos</button></div>
     <div class="card"><h3>Ajustes</h3>
+      <div class="set"><div><b>Apariencia</b><span>Claro, oscuro o como el teléfono</span></div><div class="chips">${[['auto', 'Auto'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, t]) => `<button class="chip ${(S.set.theme || 'auto') === k ? 'on' : ''}" data-theme-set="${k}">${t}</button>`).join('')}</div></div>
       ${sw('sound', 'Efectos de sonido', 'Los sonidos de acierto y error')}
       ${sw('autoplay', 'Audio automático', 'Escuchar cada frase al aparecer')}
       ${sw('speak', 'Ejercicios para hablar', Bridge && safeCanListen() ? 'Usa el micrófono del teléfono' : 'No disponible en este teléfono')}
       ${sw('hearts', 'Vidas', 'Perdés una vida con cada error en las lecciones')}
       ${sw('haptic', 'Vibración', 'Un toque al acertar o fallar')}
       ${sw('unlockAll', 'Desbloquear todo el camino', 'Para saltar a cualquier lección')}
-      <div class="set"><div><b>Apariencia</b><span>Claro, oscuro o como el teléfono</span></div><div class="chips">${[['auto', 'Auto'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, t]) => `<button class="chip ${(S.set.theme || 'auto') === k ? 'on' : ''}" data-theme-set="${k}">${t}</button>`).join('')}</div></div>
     </div>
     <button class="btn ghost wide" id="m-reset" style="color:var(--red)">Borrar mi progreso</button>
     <p class="foot-note">Petit à petit, l'oiseau fait son nid.<br>Hecho con cariño para ${NAME}.</p>`;
@@ -1337,6 +1340,15 @@ function applyTheme() {
   const dark = pref === 'dark' || (pref === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#10141C' : '#FFF8EE';
+  // le bouton montre le thème vers lequel on bascule : soleil en mode sombre, lune en mode clair
+  const tb = document.querySelector('#th-toggle use'); if (tb) tb.setAttribute('href', dark ? '#i-sun' : '#i-moon');
+}
+function toggleTheme() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  S.set.theme = dark ? 'light' : 'dark';
+  save(); applyTheme(); sfx.tap();
+  toast(dark ? 'Modo claro' : 'Modo oscuro');
+  if (screen === 'home' && tab === 'me') renderMe();
 }
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch { }
 

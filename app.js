@@ -49,7 +49,11 @@ const Bridge = window.Bridge || webBridge();
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const ic = (n, cls = '') => `<svg class="ic ${cls}"><use href="#i-${n}"/></svg>`;
-const art = (slug, cls = '') => slug ? `<img class="em ${cls}" src="art/${slug}.svg" alt="" decoding="async" draggable="false">` : '';
+const art = (slug, cls = '') => !slug ? ''
+  : slug.startsWith('ic:') ? `<span class="em emi ${cls}">${ic(slug.slice(3))}</span>`
+    : slug.startsWith('pp:') ? `<span class="em emp ${cls}">${window.person ? person(slug.slice(3)) : ''}</span>`
+      : slug.startsWith('piaf:') ? `<span class="em emp ${cls}">${piaf(slug.slice(5))}</span>`
+        : `<img class="em ${cls}" src="art/${slug}.svg" alt="" decoding="async" draggable="false">`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rand = a => a[Math.floor(Math.random() * a.length)];
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -96,18 +100,25 @@ S = loaded.s;
 try { if (loaded.raw && loaded.from === KEY && (loaded.s.xp > 0 || Object.keys(loaded.s.nodes).length)) localStorage.setItem(KEY + '.bak', loaded.raw); } catch { }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { } };
 function streakAlive() { return S.last && dayDiff(S.last, today()) <= 1; }
+/* Un jour d'utilisation = un jour de série : dès le premier exercice répondu. Renvoie true si la série vient d'avancer. */
+function touchDay() {
+  const t = today();
+  if (S.last === t) return false;
+  settleStreak(); // jour(s) manqué(s) : protège-série ou remise à zéro
+  S.streak = S.last && dayDiff(S.last, t) === 1 ? S.streak + 1 : 1;
+  S.last = t;
+  S.best = Math.max(S.best, S.streak);
+  if (!(t in S.days)) S.days[t] = 0;
+  save();
+  return true;
+}
 function addXP(n) {
   const t = today();
   if (boostOn()) n *= 2;
-  if (S.last !== t) settleStreak(); // jour manqué pendant que l'appli restait ouverte
+  touchDay();
   bump('xp', n);
   S.xp += n;
   S.days[t] = (S.days[t] || 0) + n;
-  if (S.last !== t) {
-    S.streak = S.last && dayDiff(S.last, t) === 1 ? S.streak + 1 : 1;
-    S.last = t;
-    S.best = Math.max(S.best, S.streak);
-  }
   save();
   return n;
 }
@@ -372,7 +383,7 @@ UNITS.forEach((u, ui) => {
   u.nodes = [];
   u.lessons.forEach((l, li) => {
     l.unit = u; l.n = li + 1; LESSON[l.id] = l;
-    u.nodes.push({ id: l.id, type: 'lesson', unit: u, lesson: l, title: l.title, icon: l.icon || 'book-open' });
+    u.nodes.push({ id: l.id, type: 'lesson', unit: u, lesson: l, title: l.title, icon: 'book-open' });
     (u.dialogues || []).filter(d => (d.afterLesson || u.lessons.length) === li + 1).forEach(d => {
       d.unit = u;
       u.nodes.push({ id: d.id, type: 'dialog', unit: u, dialog: d, title: d.title, icon: 'messages-square' });
@@ -492,35 +503,34 @@ function renderLearn() {
     ${pdj ? `<div class="pdj"><button class="say" data-au="${pdj.au}">${ic('volume-2')}</button><div><b>${esc(pdj.fr)}</b><div class="pdj-es">${esc(pdj.es)}</div></div></div>` : ''}</div></div>`;
   const li = levelInfo(), td = S.days[today()] || 0;
   html += `<div class="hero"><span class="lv">${li.L}</span><div class="hero-main"><small>Nivel ${li.L} · ${li.name}</small>
-    <div class="q-bar"><i style="width:${li.pct}%"></i><span>${S.xp} XP · faltan ${li.left}</span></div>
-    <div class="hero-goal">${ic('target')} Hoy: ${td} / ${S.goal} XP${boostOn() ? ` · ${ic('rocket')} XP ×2` : ''}</div></div></div>`;
+    <div class="xp-bar"><i style="width:${li.pct}%"></i></div>
+    <div class="hero-row"><span>${S.xp} XP · faltan ${li.left}</span><span class="hero-goal">${ic('target')} Hoy ${td} / ${S.goal}${boostOn() ? ' · ×2' : ''}</span></div></div></div>`;
   const nDue = srsDue().length;
-  if (nDue) html += `<button class="srs-card" id="h-srs">${art('light_bulb')}<span><b>Repaso del día</b><small>${nDue} palabra${nDue > 1 ? 's' : ''} para no olvidar</small></span>${ic('chevron-right')}</button>`;
+  if (nDue) html += `<button class="srs-card" id="h-srs">${ic('brain')}<span><b>Repaso del día</b><small>${nDue} palabra${nDue > 1 ? 's' : ''} para no olvidar</small></span>${ic('chevron-right')}</button>`;
   if (cur) {
     const u = cur.unit;
     html += `<button class="continue-card" data-node="${cur.id}" style="--u:${u.color[0]};--u-d:${u.color[1]}">
-      <span class="cc-ico">${ic(cur.icon)}</span><span><small>${isDone(ORDER[0].id) ? 'Seguir con' : 'Empezar'}</small><b>${esc(cur.title)}</b></span>${ic('chevron-right', 'go')}</button>`;
+      <span class="cc-ico">${cur.type === 'lesson' && cur.lesson.art ? art(cur.lesson.art) : ic(cur.icon)}</span><span><small>${isDone(ORDER[0].id) ? 'Seguir con' : 'Empezar'}</small><b>${esc(cur.title)}</b></span>${ic('chevron-right', 'go')}</button>`;
   }
   UNITS.forEach((u, ui) => {
     html += `<section class="unit" style="--u:${u.color[0]};--u-d:${u.color[1]}">
-      <div class="unit-head"><span class="u-stick">${(u.art || []).slice(0, 3).map((a, k) => art(a, 's' + k)).join('')}</span><div><small>Unidad ${ui}</small><h2>${esc(u.title)}</h2><p>${esc(u.subtitle || '')}</p></div>
+      <div class="unit-head"><div><small>Unidad ${ui}</small><h2>${esc(u.title)}</h2><p>${esc(u.subtitle || '')}</p></div>
       <button class="u-guide" data-guide="${u.id}" aria-label="Guía de la unidad">${ic('notebook-text')}</button></div><div class="path">`;
     u.nodes.forEach((n, i) => {
       const done = isDone(n.id), open = isOpen(n.id), current = cur && cur.id === n.id;
       const x = Math.round(Math.sin(i * 0.9) * 78);
       const stars = n.type === 'lesson' ? `<span class="stars">${[1, 2, 3].map(k => ic('crown', lvlOf(n.id) >= k ? 'on' : '')).join('')}</span>` : '';
       const side = x > 0 ? 'l' : 'r';
-      const nart = n.type === 'lesson' ? n.lesson.art : n.type === 'dialog' ? 'speech_balloon' : n.type === 'story' ? 'open_book' : 'trophy';
+      const nart = n.type === 'lesson' ? n.lesson.art : null; // dialogues, lectures, révisions : icônes maison
       const far = side === 'l' ? 'dr' : 'dl'; // côté libre (à l'opposé du titre)
-      const deco = current ? `<span class="piaf here ${far}" data-piaf="happy"></span>`
-        : i % 2 === 1 && u.art && u.art.length > 3 ? `<span class="decor ${far}">${art(u.art[3 + ((i >> 1) % (u.art.length - 3))])}</span>` : '';
+      const deco = current ? `<span class="piaf here ${far}" data-piaf="happy"></span>` : '';
       html += `<div class="node ${n.type} ${done ? 'done' : ''} ${open ? '' : 'locked'} ${current ? 'current' : ''}" style="transform:translateX(${x}px)" data-node="${n.id}" role="button">
         ${current ? `<span class="start-tag">${isDone(ORDER[0].id) ? 'Seguir' : 'Empezar'}</span>` : ''}
         <span class="disc">${open ? (nart ? art(nart) : ic(n.icon)) : ic('lock')}${done ? `<i class="ok">${ic('check')}</i>` : ''}</span>${stars}
         <span class="node-label ${side}">${esc(n.title)}</span>${deco}</div>`;
       if (i === 3) {
         const cid = 'chest-' + u.id, got = !!S.chests[cid], avail = isDone(n.id) || S.set.unlockAll;
-        html += `<div class="node chest ${got ? 'done' : avail ? 'ready' : 'locked'}" style="transform:translateX(${Math.round(Math.sin((i + .5) * 0.9) * 78)}px)" data-chest="${cid}" data-amt="${20 + ui * 5}" data-ok="${avail ? 1 : 0}" role="button"><span class="disc">${art('wrapped_gift')}${got ? `<i class="ok">${ic('check')}</i>` : ''}</span></div>`;
+        html += `<div class="node chest ${got ? 'done' : avail ? 'ready' : 'locked'}" style="transform:translateX(${Math.round(Math.sin((i + .5) * 0.9) * 78)}px)" data-chest="${cid}" data-amt="${20 + ui * 5}" data-ok="${avail ? 1 : 0}" role="button"><span class="disc">${ic('gift')}${got ? `<i class="ok">${ic('check')}</i>` : ''}</span></div>`;
       }
     });
     html += `</div></section>`;
@@ -666,8 +676,9 @@ function exBuild(s, ss, dir) {
   return { t: dir === 'es' ? 'build-es' : 'build', item: s, bank, ans: target, ref: ['s', s.lesson, s.fr] };
 }
 function exListen(s, ss) { const e = exBuild(s, ss, 'fr'); e.t = 'listen'; return e; }
+const fillIn = (q, o) => (/'$/.test(o) ? q.replace('___ ', o) : q.replace('___', o));
 function exFill(g) {
-  const full = g.q.replace('___', g.opts[g.a]);
+  const full = fillIn(g.q, g.opts[g.a]);
   return { t: 'fill', item: g, opts: g.opts.map((o, i) => ({ o, i })).sort(() => Math.random() - .5), ans: g.opts[g.a], full, ref: ['g', g.lesson, g.q] };
 }
 function exMatch(vs) {
@@ -841,7 +852,7 @@ const RENDER_EX = {
       if (sel.dataset.k === b.dataset.k) {
         [sel, b].forEach(x => { x.classList.remove('sel'); x.classList.add('right', 'gone'); });
         haptic('ok'); sel = null;
-        if (--left === 0) setTimeout(() => { sfx.ok(); Q.combo++; Q.right++; Q.done++; Q.i++; setProgress(); setTimeout(nextEx, 350); }, 450);
+        if (--left === 0) setTimeout(() => { if (touchDay()) Q.newDay = true; sfx.ok(); Q.combo++; Q.right++; Q.done++; Q.i++; setProgress(); setTimeout(nextEx, 350); }, 450);
       } else {
         errs++; sfx.bad(); haptic('error');
         const a = sel; [a, b].forEach(x => { x.classList.remove('sel'); x.classList.add('wrong'); });
@@ -852,7 +863,7 @@ const RENDER_EX = {
   },
   speak(body, ex, head) {
     body.innerHTML = head + `<h2 class="qtitle">Decí esta frase en voz alta</h2>` + promptBubble(ex.item.fr, ex.item.au, `<div class="pdj-es">${esc(ex.item.es)}</div>`) +
-      `<div class="speak-box"><button class="mic" id="mic">${ic('mic')}</button><div class="heard" id="heard">Tocá el micrófono y hablá</div></div>`;
+      `<div class="speak-box"><button class="mic" id="mic">${ic('mic-g')}</button><div class="heard" id="heard">Tocá el micrófono y hablá</div></div>`;
     wirePlay(body);
     $('#q-check').hidden = true;
     $('#q-skip').hidden = false;
@@ -934,6 +945,7 @@ $('#q-check').onclick = () => {
 
 function judge(ok, extra = '') {
   Q.locked = true;
+  if (touchDay()) { Q.newDay = true; updateTop(); }
   { const ti = $('#tin'); if (ti) { ti.disabled = true; ti.blur(); } }
   const ex = Q.ex, fb = $('#q-fb');
   fb.classList.toggle('bad', !ok);
@@ -994,9 +1006,10 @@ function regen(ex) {
   return { ...ex };
 }
 function comboPop(n) {
-  const d = document.createElement('div'); d.className = 'combo-pop';
-  d.innerHTML = `<span class="cp-art">${animal(n % 10 === 0 ? 'Jacques' : 'Shelby')}</span><span>¡${n} seguidas!<small>${n % 10 === 0 ? 'Miaou ! Jacques está impresionado' : '¡Guau! dice Shelby'}</small></span>`;
-  $('#quiz').appendChild(d); setTimeout(() => d.remove(), 1500);
+  const fb = $('#q-fb'), who = n % 10 === 0 ? 'Jacques' : 'Shelby';
+  $('.fb-title', fb).textContent = `¡${n} seguidas!`;
+  const fp = $('.fb-piaf', fb);
+  fp.innerHTML = animal(who); fp.className = 'fb-piaf npc jump';
 }
 $('#q-next').onclick = () => {
   if (Q.meta.hearts && S.set.hearts && heartsNow() === 0 && Q.i + 1 < Q.list.length) return outOfHearts();
@@ -1030,7 +1043,7 @@ function finishQuiz() {
   else if (type === 'dialog') { S.stats.dialogs++; coins = 5; }
   else if (type === 'story') { S.stats.stories = (S.stats.stories || 0) + 1; coins = 5; }
   else { S.stats.practice++; bump('practice'); if (S.set.hearts && heartsNow() < MAXH) { gainHeart(1); heart = true; } }
-  const wasStreak = S.last === today();
+  const wasStreak = S.last === today() && !Q.newDay;
   const goalBefore = (S.days[today()] || 0) >= S.goal;
   const boost = boostOn();
   const xpLv = levelOf(S.xp);
@@ -1064,7 +1077,7 @@ function results(r) {
       ${r.goalHit ? `<span class="perk goalp">${ic('target')} ¡Meta del día!</span>` : ''}
       ${r.questsDone ? `<span class="perk quest">${ic('gift')} ${r.questsDone > 1 ? r.questsDone + ' desafíos listos' : 'Desafío listo'}</span>` : ''}
     </div>
-    ${r.newStreak ? `<div class="streak-card"><b>${ic('flame')} ¡Racha de ${S.streak} día${S.streak > 1 ? 's' : ''}!</b><div class="sweek">${[...Array(7)].map((_, i) => { const k = dateShift(i - 6); return `<span class="${S.days[k] ? 'on' : ''}">${'DLMMJVS'[new Date(k + 'T12:00').getDay()]}</span>`; }).join('')}</div></div>` : ''}
+    ${r.newStreak ? `<div class="streak-card"><b>${ic('flame')} ¡Racha de ${S.streak} día${S.streak > 1 ? 's' : ''}!</b><div class="sweek">${[...Array(7)].map((_, i) => { const k = dateShift(i - 6); return `<span class="${k in S.days ? 'on' : ''}">${'DLMMJVS'[new Date(k + 'T12:00').getDay()]}</span>`; }).join('')}</div></div>` : ''}
     </div><div class="done-foot"><button class="btn primary wide" id="d-ok">Continuar</button></div>`;
   hydratePiaf(el);
   $('#d-ok').onclick = () => { goHome(); if (r.levelUp) setTimeout(() => pop(`<span class="piaf party flap" data-piaf="joy"></span><h2>¡Nivel ${r.levelUp}!</h2><p class="big-coins">${esc(levelName(r.levelUp))}</p><p>Seguí así, ${NAME}.</p><button class="btn primary wide" data-close>Merci !</button>`), 350); else if (r.badges && r.badges.length) setTimeout(() => badgePop(r.badges), 350); else if (r.questsDone) toast('¡Tenés un desafío para cobrar!'); };
@@ -1087,7 +1100,7 @@ function openDialog(d, roleplay = false) {
   const el = $('#dlg');
   el.innerHTML = `<div class="dlg-head"><button class="icon-btn" id="dl-x">${ic('x')}</button><b>${esc(d.title)}</b>
       ${meWho && speakOK() ? `<button class="icon-btn" id="dl-role" title="Actuar">${ic('drama')}</button>` : ''}</div>
-    <div class="stage"><div class="stage-art">${(d.art || []).map(a => art(a)).join('')}</div><div class="cast">${speakers.map(s => `<div class="cast-p" data-who="${esc(s)}">${person(s, (d.speakers || {})[s])}<span>${esc(s)}</span></div>`).join('')}</div></div>
+    <div class="stage"><div class="cast">${speakers.map(s => `<div class="cast-p" data-who="${esc(s)}">${person(s, (d.speakers || {})[s])}<span>${esc(s)}</span></div>`).join('')}</div></div>
     <div class="scene">${ic('clapperboard')}<span>${esc(d.scene || '')}${D.roleplay ? '<br><b>Modo actuación:</b> vos decís las frases de Alejandra.' : ''}</span></div>
     <div class="chat" id="chat"></div>
     <div class="hint" id="dl-hint">Tocá un mensaje para ver la traducción</div>
@@ -1132,16 +1145,16 @@ async function dlgNext() {
       $('#dl-next').disabled = true;
       $('#dl-hint').textContent = 'Tu turno: tocá el micrófono y decí la frase';
       const foot = $('#dl-foot');
-      const mic = document.createElement('button'); mic.className = 'btn primary'; mic.innerHTML = ic('mic') + ' Hablar';
+      const mic = document.createElement('button'); mic.className = 'btn primary'; mic.innerHTML = ic('mic-g') + ' Hablar';
       foot.appendChild(mic);
       const done = () => { mic.remove(); $('#dl-next').disabled = false; mb.classList.remove('yourturn'); $('#dl-hint').textContent = 'Tocá un mensaje para ver la traducción'; play(l.au).then(() => setTimeout(dlgNext, 300)); };
-      mic.onclick = () => { mic.innerHTML = ic('mic') + ' Te escucho…'; try { Bridge.listen(); } catch { done(); } };
-      window.onSpeechPartial = t => { mic.innerHTML = ic('mic') + ' ' + esc(t.slice(0, 22)); };
+      mic.onclick = () => { mic.innerHTML = ic('mic-g') + ' Te escucho…'; try { Bridge.listen(); } catch { done(); } };
+      window.onSpeechPartial = t => { mic.innerHTML = ic('mic-g') + ' ' + esc(t.slice(0, 22)); };
       window.onSpeechLevel = () => { }; window.onSpeechState = () => { };
       window.onSpeech = r => {
         const s = r.ok ? Math.max(...(r.texts || ['']).map(t => simil(t, l.fr))) : 0;
         if (s >= .6) { sfx.ok(); haptic('ok'); toast(rand(PRAISE)); done(); }
-        else { sfx.bad(); mic.innerHTML = ic('mic') + ' Otra vez'; toast(r.ok ? 'Casi… escuchá y probá de nuevo' : 'No te escuché, probá de nuevo'); play(l.au); }
+        else { sfx.bad(); mic.innerHTML = ic('mic-g') + ' Otra vez'; toast(r.ok ? 'Casi… escuchá y probá de nuevo' : 'No te escuché, probá de nuevo'); play(l.au); }
       };
       return;
     }
@@ -1243,7 +1256,7 @@ function renderMe() {
   const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); return { k, xp: S.days[k] || 0, l: 'DLMMJVS'[d.getDay()] }; });
   const max = Math.max(S.goal, ...days.map(d => d.xp));
   const sw = (k, t, s) => `<div class="set"><div><b>${t}</b><span>${s}</span></div><button class="switch ${S.set[k] ? 'on' : ''}" data-set="${k}" aria-label="${t}"></button></div>`;
-  el.innerHTML = `<div class="me-head"><span class="piaf" data-piaf="happy"></span><div><h1>${NAME}</h1><p>Nivel ${levelOf(S.xp)} · ${levelName(levelOf(S.xp))} · desde ${esc(S.since || today())}</p></div></div>
+  el.innerHTML = `<div class="me-head"><span class="piaf" data-piaf="happy"></span><div><h1>${NAME}</h1><p>Nivel ${levelOf(S.xp)} · ${levelName(levelOf(S.xp))} · desde el ${esc((S.since || today()).split('-').reverse().join('/'))}</p></div></div>
     <div class="grid2">
       <div class="kpi" style="color:var(--orange)">${ic('flame')}<div><b>${streakAlive() ? S.streak : 0}</b><span>días de racha</span></div></div>
       <div class="kpi" style="color:var(--blue)">${ic('zap')}<div><b>${S.xp}</b><span>XP en total</span></div></div>
@@ -1539,8 +1552,7 @@ function openStory(st) {
   stopAudio(); D = null;
   const el = $('#dlg');
   el.innerHTML = `<div class="dlg-head"><button class="icon-btn" id="dl-x">${ic('x')}</button><b>${esc(st.title)}</b></div>
-    <div class="stage"><div class="stage-art">${(st.art || []).map(a => art(a)).join('')}</div><div class="cast"><span class="piaf reader" data-piaf="happy" data-prop="book"></span></div></div>
-    <div class="scene">${ic('book-open-text')}<span><b>${esc(st.kind || 'Lectura')}</b> · ${esc(st.intro || '')}</span></div>
+    <div class="scene reading"><span class="piaf reader" data-piaf="happy" data-prop="book"></span><span><b>${esc(st.kind || 'Lectura')}</b> · ${esc(st.intro || '')}</span></div>
     <div class="chat story" id="chat">${st.paras.map((p, i) => `<button class="para" data-i="${i}"><span class="t">${esc(p.fr)}</span><span class="es">${esc(p.es)}</span></button>`).join('')}</div>
     <div class="hint">Tocá una frase para escucharla y ver la traducción</div>
     <div class="dlg-foot"><button class="btn" id="st-all">${ic('play')} Escuchar</button><button class="btn purple" id="st-q">Preguntas</button></div>`;

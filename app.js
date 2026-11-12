@@ -1829,6 +1829,8 @@ function cuCard(kind, it) {
     <p class="cu-why">${ic('lightbulb')}<span>${esc(it.why)}</span></p>
     <div class="cu-act"><a class="btn primary" href="${esc(k.url(it.q || it.title))}" target="_blank" rel="noopener">${ic(k.actIcn)}${k.act}</a>
       <button class="btn cu-done${done ? ' on' : ''}" data-done="${it.id}">${ic('check')}${done ? k.was : k.done}</button></div>
+    ${it.free ? `<div class="cu-free"><b>${ic(kind === 'films' ? 'circle-play' : 'book-open-text')}${kind === 'films' ? 'Ver gratis' : 'Leer gratis'}</b>
+      ${it.free.fr ? `<a href="${esc(it.free.fr)}" target="_blank" rel="noopener">En francés</a>` : ''}${it.free.es ? `<a href="${esc(it.free.es)}" target="_blank" rel="noopener">En español</a>` : ''}</div>` : ''}
   </article>`;
 }
 function renderCulture() {
@@ -1854,6 +1856,7 @@ function renderCulture() {
       <button data-wd="1" ${w < now.week ? '' : 'disabled'} aria-label="Semana siguiente">${ic('arrow-right')}</button></div>
     ${['films', 'music', 'books'].map(k => { const it = cuPick(k, w); return it ? cuCard(k, it) : ''; }).join('')}
     <div class="card cu-count"><div><b>${nDone('films')}</b><span>películas vistas</span></div><div><b>${nDone('music')}</b><span>músicas oídas</span></div><div><b>${nDone('books')}</b><span>libros leídos</span></div></div>
+    <a class="card cu-tv" href="https://www.tv5mondeplus.com/" target="_blank" rel="noopener"><span class="p-ico" style="background:#3A62E0">${ic('circle-play')}</span><div class="q-main"><b>Cine gratis en francés</b><span>TV5MONDE+ tiene películas y series gratis, con subtítulos en español.</span></div>${ic('external-link')}</a>
     <p class="cu-note">Cada lunes llegan una película, una música y un libro nuevos. Con las flechas volvés a las semanas anteriores.</p>`;
   $$('[data-au]', el).forEach(b => b.onclick = () => play(b.dataset.au));
   $$('[data-wd]', el).forEach(b => b.onclick = () => { sfx.tap(); cuWeek = w + +b.dataset.wd; renderCulture(); el.scrollTop = 0; });
@@ -1863,7 +1866,7 @@ function renderCulture() {
     if (S.culture.done[id]) delete S.culture.done[id]; else { S.culture.done[id] = dayNo(); sfx.ok(); haptic('ok'); }
     save(); renderCulture(); el.scrollTop = st;
   });
-  $$('.cu-act a', el).forEach(a => a.onclick = e => { if (Bridge) { e.preventDefault(); Bridge.openUrl(a.href); } });
+  $$('.cu-act a, .cu-free a, a.cu-tv', el).forEach(a => a.onclick = e => { if (Bridge) { e.preventDefault(); Bridge.openUrl(a.href); } });
 }
 
 const RENDER = { learn: renderLearn, practice: renderPractice, words: renderWords, me: renderMe, quests: renderQuests, shop: renderShop, culture: renderCulture };
